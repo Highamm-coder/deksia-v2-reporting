@@ -1,0 +1,30 @@
+name: deksia-orchestrator
+
+# Daily scheduled runner: pull per-client metrics -> ingest-metrics -> run goal tracker.
+# Idempotent and safe to re-run. Times in UTC; 10:00 UTC ~ 06:00 America/New_York.
+on:
+  schedule:
+    - cron: "0 10 * * *"
+  workflow_dispatch:
+    inputs:
+      run_date:
+        description: "Override date (YYYY-MM-DD, America/New_York). Blank = yesterday."
+        required: false
+
+jobs:
+  orchestrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Run orchestrator
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
+          CALLRAIL_API_KEY: ${{ secrets.CALLRAIL_API_KEY }}
+          COMPOSIO_API_KEY: ${{ secrets.COMPOSIO_API_KEY }}
+          RUN_DATE: ${{ github.event.inputs.run_date }}
+        run: node orchestrator/run.mjs
