@@ -1,0 +1,21 @@
+# Secrets — NEVER commit
+**/.env
+.env
+.env.local
+*.key
+*.pem
+
+# Node
+**/node_modules/
+**/dist/
+*.log
+
+# Claude Code local settings (keep skills, ignore local config)
+.claude/settings.local.json
+
+# OS / editor
+.DS_Store
+*.swp
+
+# Archives / build artifacts
+*.zip
