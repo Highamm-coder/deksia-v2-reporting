@@ -45,6 +45,9 @@ Deno.serve(async (req: Request) => {
     client_id: clientId, source,
     metric_name: String(r.metric_name),
     metric_date: String(r.metric_date),
+    account_ext_id: String(r.account_ext_id ?? ""),
+    entity: String(r.entity ?? ""),
+    qualifier: String(r.qualifier ?? ""),
     value: r.value === null || r.value === undefined ? null : Number(r.value),
     unit: r.unit ?? null, meta: r.meta ?? {},
     ingested_at: new Date().toISOString(),
@@ -53,7 +56,7 @@ Deno.serve(async (req: Request) => {
   if (bad) return json({ error: "each row needs metric_name and metric_date YYYY-MM-DD" }, 400);
 
   const { error } = await supabase.from("metrics_daily")
-    .upsert(payload, { onConflict: "client_id,source,metric_name,metric_date" });
+    .upsert(payload, { onConflict: "client_id,source,metric_name,metric_date,account_ext_id,entity,qualifier" });
   if (error) return json({ error: "upsert failed", detail: error.message }, 500);
   return json({ ok: true, client_id: clientId, source, rows_upserted: payload.length });
 });
