@@ -116,21 +116,16 @@ async function pullCallRail(src) {
   };
   const calls = await fetchAll("calls", "start_time");
   const forms = await fetchAll("form_submissions", "submitted_at");
+  // Per-source rows ONLY (qualifier=source); no loose qualifier='' total (would double-count
+  // in the tracker). account_ext_id=company so a client's multiple CallRail companies
+  // (e.g. Hatton Wake + Nebar) stay distinct on the PK instead of overwriting each other.
   const rows = [];
-  const keys = new Set([...Object.keys(calls), ...Object.keys(forms)]);
-  const totals = {}; // date -> {c,f}
-  for (const k of keys) {
+  for (const k of new Set([...Object.keys(calls), ...Object.keys(forms)])) {
     const [day, source] = k.split("|");
     const c = calls[k] || 0, f = forms[k] || 0;
-    if (c) rows.push({ metric_name: "calls", metric_date: day, value: c, unit: "int", qualifier: source });
-    if (f) rows.push({ metric_name: "forms", metric_date: day, value: f, unit: "int", qualifier: source });
-    rows.push({ metric_name: "mqls", metric_date: day, value: c + f, unit: "int", qualifier: source });
-    totals[day] = totals[day] || { c: 0, f: 0 }; totals[day].c += c; totals[day].f += f;
-  }
-  for (const [day, t] of Object.entries(totals)) {  // loose totals (qualifier='')
-    rows.push({ metric_name: "calls", metric_date: day, value: t.c, unit: "int" });
-    rows.push({ metric_name: "forms", metric_date: day, value: t.f, unit: "int" });
-    rows.push({ metric_name: "mqls",  metric_date: day, value: t.c + t.f, unit: "int" });
+    if (c) rows.push({ metric_name: "calls", metric_date: day, value: c, unit: "int", account_ext_id: company, qualifier: source });
+    if (f) rows.push({ metric_name: "forms", metric_date: day, value: f, unit: "int", account_ext_id: company, qualifier: source });
+    rows.push({ metric_name: "mqls", metric_date: day, value: c + f, unit: "int", account_ext_id: company, qualifier: source });
   }
   return rows;
 }
@@ -146,22 +141,19 @@ async function pullGA4(src) {
     metrics: GA4_METRICS.map(([, api]) => ({ name: api })),
     limit: 100000,
   });
-  const rows = [], totals = {}; // `${date}|${i}` -> sum
+  // Per-segment rows ONLY (qualifier=channel). Do NOT also write an unsegmented
+  // qualifier='' total — the tracker/rollup views sum across rows, so a loose total
+  // would double-count. Channel sums are correct for sessions/engaged_sessions/key_events.
+  // NOTE: users/new_users summed across channels slightly overcount unique users; no active
+  // goal uses them today — add a dedicated unsegmented total if such a goal is created.
+  const rows = [];
   for (const r of (data.rows || [])) {
     const day = ymd(r.dimensionValues[0].value);
     const channel = r.dimensionValues[1].value;
     r.metricValues.forEach((mv, i) => {
-      const v = Number(mv.value || 0);
-      const [name] = GA4_METRICS[i];
-      rows.push({ metric_name: name, metric_date: day, value: v, unit: "int",
+      rows.push({ metric_name: GA4_METRICS[i][0], metric_date: day, value: Number(mv.value || 0), unit: "int",
                   account_ext_id: src.external_id, entity: src.params?.brand || "", qualifier: channel });
-      const tk = `${day}|${i}`; totals[tk] = (totals[tk] || 0) + v;
     });
-  }
-  for (const [tk, v] of Object.entries(totals)) {  // unsegmented totals (qualifier='')
-    const [day, i] = tk.split("|");
-    rows.push({ metric_name: GA4_METRICS[+i][0], metric_date: day, value: v, unit: "int",
-                account_ext_id: src.external_id, entity: src.params?.brand || "" });
   }
   return rows;
 }

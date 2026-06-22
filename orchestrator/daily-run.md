@@ -21,8 +21,12 @@ service account + Meta token) if a no-Claude pipeline is ever needed.
 2. **GA4** (Composio `GOOGLE_ANALYTICS_RUN_REPORT`, connection `google_analytics_duhat-aspace`):
    per `ga4` source, dimensions `[date, sessionDefaultChannelGroup]`, metrics
    `sessions,totalUsers,newUsers,engagedSessions,keyEvents`. Upsert one row per day×channel
-   (`qualifier=channelGroup`, `account_ext_id=property`, `entity=brand`) **plus** unsegmented
-   daily totals (`qualifier=''`). Metric names: sessions, users, new_users, engaged_sessions, key_events.
+   (`qualifier=channelGroup`, `account_ext_id=property`, `entity=brand`). Metric names:
+   sessions, users, new_users, engaged_sessions, key_events.
+   **Per-segment rows ONLY — do NOT also write an unsegmented `qualifier=''` total** (the tracker
+   and rollup views sum across rows, so a loose total double-counts). Channel sums are correct for
+   sessions/engaged_sessions/key_events; users/new_users summed across channels slightly overcount
+   unique users (no active goal uses them — add a dedicated total only if one is created).
 
 3. **Meta** (Meta Ads MCP `ads_get_ad_entities`, `level:account`, `time_increment:1`):
    per **active+confirmed** `meta` source, fields impressions/clicks/ctr/actions:link_click/
@@ -30,9 +34,11 @@ service account + Meta token) if a no-Claude pipeline is ever needed.
    Upsert per day. (Confirmed accounts: Moda=567942467523634, Oleandri=860604639208429,
    KTU=851287220971008; others single.)
 
-4. **CallRail** (REST, `CALLRAIL_API_KEY`): per `callrail` company, paginate yesterday's
+4. **CallRail** (REST v3, `CALLRAIL_API_KEY`): per `callrail` company, paginate yesterday's
    `calls.json` + `form_submissions.json` with `fields=...,source`; bucket by source →
-   `calls`/`forms`/`mqls` rows with `qualifier=source`, plus loose totals (`qualifier=''`).
+   `calls`/`forms`/`mqls` rows with `qualifier=source` and **`account_ext_id=company_id`**
+   (so a client's multiple companies — e.g. Hatton Wake + Nebar — don't collide on the PK).
+   **Per-source rows ONLY — no loose `qualifier=''` total** (would double-count in the tracker).
 
 5. **Google Ads** (Composio `GOOGLESHEETS_BATCH_GET`, connection `googlesheets_divot-reroll`):
    read Ledger `1cEIfUfd_AFd4r82qt9p9imuo7oaqcJqwgZXAGXRSzhU` tabs `Campaigns` + `Conversions`,
