@@ -1,39 +1,48 @@
 #!/usr/bin/env node
-// Deksia platform orchestrator — scheduled runner.
-// Per active client+source: pull yesterday's metrics, POST to the ingest-metrics
-// edge function (idempotent), then trigger the in-DB SMART goal tracker.
+// Deksia platform orchestrator — scheduled runner (hands-free daily).
+// Per active client+source: pull the window's metrics, POST to ingest-metrics
+// (idempotent), ingest the Google Ads Ledger sheet, then trigger the goal tracker.
 //
-// Date boundaries: America/New_York. Safe to re-run (ingest + tracker are idempotent).
+// Date boundaries: America/New_York. Safe to re-run (ingest + tracker idempotent).
 //
 // Env (GitHub Actions secrets):
-//   SUPABASE_URL                e.g. https://ykxauddrsnuwkvimkdhw.supabase.co
-//   SUPABASE_SERVICE_ROLE_KEY   read client_sources + call RPC
-//   INGEST_TOKEN                bearer for ingest-metrics
-//   CALLRAIL_API_KEY            CallRail v3 API key
-//   COMPOSIO_API_KEY            (optional) for GA4/Meta pulls via Composio
+//   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, INGEST_TOKEN   (required)
+//   CALLRAIL_API_KEY        CallRail v3 REST (calls/forms)
+//   COMPOSIO_API_KEY        GA4 + Pages + Google Ads Ledger sheet (Composio hosted API)
+//   META_ACCESS_TOKEN       Meta Graph API (ad-account insights); optional
+//   RUN_START / RUN_END     optional YYYY-MM-DD window override (default = yesterday ET)
+//   *_CONNECTED_ACCOUNT_ID  optional Composio connected-account overrides
 //
-// Coverage today: CallRail (REST, implemented). Google Ads arrives via the MCC
-// Script POST (push, no pull needed here). GA4/Meta are pulled by the Claude
-// `client-reporting` routine OR via the Composio extension point below.
+// Composio hosted execute API: POST /api/v3/tools/execute/{slug}, header x-api-key,
+// body { connected_account_id, arguments }.  (docs.composio.dev/api-reference)
 
 const {
   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, INGEST_TOKEN,
-  CALLRAIL_API_KEY, COMPOSIO_API_KEY,
+  CALLRAIL_API_KEY, COMPOSIO_API_KEY, META_ACCESS_TOKEN,
 } = process.env;
 
 for (const [k, v] of Object.entries({ SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, INGEST_TOKEN })) {
   if (!v) { console.error(`Missing required env ${k}`); process.exit(1); }
 }
 
-// ---- yesterday in America/New_York (YYYY-MM-DD) ----
-function etYesterday() {
-  const now = new Date();
-  const et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
-  et.setDate(et.getDate() - 1);
+// Composio connected-account IDs (this workspace; override via env).
+const CA = {
+  ga4:      process.env.GA4_CONNECTED_ACCOUNT_ID      || "google_analytics_duhat-aspace",
+  sheets:   process.env.SHEETS_CONNECTED_ACCOUNT_ID   || "googlesheets_divot-reroll",
+  facebook: process.env.FACEBOOK_CONNECTED_ACCOUNT_ID || "",
+};
+const GA_LEDGER_SHEET = "1cEIfUfd_AFd4r82qt9p9imuo7oaqcJqwgZXAGXRSzhU";
+const META_API = "https://graph.facebook.com/v21.0";
+
+function etDate(offsetDays = 0) {
+  const et = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+  et.setDate(et.getDate() + offsetDays);
   return et.toISOString().slice(0, 10);
 }
-const DAY = process.env.RUN_DATE || etYesterday();
+const START = process.env.RUN_START || process.env.RUN_DATE || etDate(-1);
+const END   = process.env.RUN_END   || process.env.RUN_DATE || etDate(-1);
 
+// ---- helpers ----
 async function sb(path, opts = {}) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
     ...opts,
@@ -45,7 +54,7 @@ async function sb(path, opts = {}) {
     },
   });
   if (!res.ok) throw new Error(`Supabase ${path}: ${res.status} ${await res.text()}`);
-  return res.json();
+  return res.status === 204 ? null : res.json();
 }
 
 async function ingest(source, clientSlug, rows) {
@@ -60,60 +69,220 @@ async function ingest(source, clientSlug, rows) {
   return out.rows_upserted ?? 0;
 }
 
-// ---- CallRail: count calls + form submissions for the day ----
+// Meta display strings -> number ("$7,852.95 USD", "1.71%", "" / "Not available" -> null)
+function toNumber(s) {
+  if (s === null || s === undefined) return null;
+  const t = String(s).replace(/ /g, " ").trim();
+  if (t === "" || /not available/i.test(t)) return null;
+  const n = parseFloat(t.replace(/[$,%]/g, "").replace(/USD/i, "").replace(/,/g, "").trim());
+  return Number.isFinite(n) ? n : null;
+}
+const ymd = (yyyymmdd) => `${yyyymmdd.slice(0,4)}-${yyyymmdd.slice(4,6)}-${yyyymmdd.slice(6,8)}`;
+
+async function composioExec(toolSlug, connectedAccountId, args) {
+  if (!COMPOSIO_API_KEY) throw new Error("COMPOSIO_API_KEY not set");
+  const res = await fetch(`https://backend.composio.dev/api/v3/tools/execute/${toolSlug}`, {
+    method: "POST",
+    headers: { "x-api-key": COMPOSIO_API_KEY, "Content-Type": "application/json" },
+    body: JSON.stringify({ connected_account_id: connectedAccountId, arguments: args }),
+  });
+  const out = await res.json().catch(() => ({}));
+  if (!res.ok || out.successful === false || out.error)
+    throw new Error(`composio ${toolSlug}: ${res.status} ${JSON.stringify(out.error || out).slice(0,300)}`);
+  return out.data ?? out;
+}
+
+// ---- CallRail: calls + forms per day, split by source (qualifier) + loose total ----
 async function pullCallRail(src) {
   if (!CALLRAIL_API_KEY) return [];
-  const account = src.params?.account_id;
-  const company = src.external_id;
-  if (!account) { console.warn(`CallRail ${src.slug}: no account_id in params`); return []; }
-  const base = `https://api.callrail.com/v3/a/${account}`;
-  const q = `company_id=${company}&start_date=${DAY}&end_date=${DAY}&per_page=1`;
+  const account = src.params?.account_id, company = src.external_id;
+  if (!account) { console.warn(`CallRail ${src.slug}: no account_id`); return []; }
   const hdr = { Authorization: `Token token=${CALLRAIL_API_KEY}` };
-  const [calls, forms] = await Promise.all([
-    fetch(`${base}/calls.json?${q}`, { headers: hdr }).then(r => r.json()),
-    fetch(`${base}/form_submissions.json?${q}`, { headers: hdr }).then(r => r.json()),
-  ]);
+  const base = `https://api.callrail.com/v3/a/${account}`;
+  const fetchAll = async (endpoint, dateField) => {
+    const byKey = {}; // `${date}|${source}` -> count
+    for (let page = 1; page <= 20; page++) {
+      const q = `company_id=${company}&start_date=${START}&end_date=${END}&per_page=250&page=${page}&fields=${dateField},source`;
+      const d = await fetch(`${base}/${endpoint}.json?${q}`, { headers: hdr }).then(r => r.json());
+      const recs = d[endpoint === "calls" ? "calls" : "form_submissions"] || [];
+      for (const r of recs) {
+        const day = (r[dateField] || "").slice(0, 10); if (!day) continue;
+        const s = r.source || "Unknown";
+        byKey[`${day}|${s}`] = (byKey[`${day}|${s}`] || 0) + 1;
+      }
+      if (page >= (d.total_pages || 1) || !recs.length) break;
+    }
+    return byKey;
+  };
+  const calls = await fetchAll("calls", "start_time");
+  const forms = await fetchAll("form_submissions", "submitted_at");
   const rows = [];
-  if (typeof calls.total_records === "number") rows.push({ metric_name: "calls", metric_date: DAY, value: calls.total_records, unit: "int", meta: { brand: src.params?.brand } });
-  if (typeof forms.total_records === "number") rows.push({ metric_name: "forms", metric_date: DAY, value: forms.total_records, unit: "int", meta: { brand: src.params?.brand } });
+  const keys = new Set([...Object.keys(calls), ...Object.keys(forms)]);
+  const totals = {}; // date -> {c,f}
+  for (const k of keys) {
+    const [day, source] = k.split("|");
+    const c = calls[k] || 0, f = forms[k] || 0;
+    if (c) rows.push({ metric_name: "calls", metric_date: day, value: c, unit: "int", qualifier: source });
+    if (f) rows.push({ metric_name: "forms", metric_date: day, value: f, unit: "int", qualifier: source });
+    rows.push({ metric_name: "mqls", metric_date: day, value: c + f, unit: "int", qualifier: source });
+    totals[day] = totals[day] || { c: 0, f: 0 }; totals[day].c += c; totals[day].f += f;
+  }
+  for (const [day, t] of Object.entries(totals)) {  // loose totals (qualifier='')
+    rows.push({ metric_name: "calls", metric_date: day, value: t.c, unit: "int" });
+    rows.push({ metric_name: "forms", metric_date: day, value: t.f, unit: "int" });
+    rows.push({ metric_name: "mqls",  metric_date: day, value: t.c + t.f, unit: "int" });
+  }
   return rows;
 }
 
-// ---- Composio extension point for GA4 / Meta (optional) ----
-// Implement against the Composio execute API once COMPOSIO_API_KEY + tool slugs
-// are configured. Until then these sources are pulled by the Claude routine.
-async function pullComposio(/* src */) {
-  if (!COMPOSIO_API_KEY) return [];
-  // TODO: call Composio GOOGLE_ANALYTICS_RUN_REPORT / ads_get_ad_entities per src,
-  //       normalize to [{metric_name, metric_date, value, unit}], return rows.
-  return [];
+// ---- GA4 (Composio): daily x channel-group, plus unsegmented daily totals ----
+const GA4_METRICS = [["sessions","sessions"],["users","totalUsers"],["new_users","newUsers"],
+  ["engaged_sessions","engagedSessions"],["key_events","keyEvents"]];
+async function pullGA4(src) {
+  const data = await composioExec("GOOGLE_ANALYTICS_RUN_REPORT", CA.ga4, {
+    property: `properties/${src.external_id}`,
+    dateRanges: [{ startDate: START, endDate: END }],
+    dimensions: [{ name: "date" }, { name: "sessionDefaultChannelGroup" }],
+    metrics: GA4_METRICS.map(([, api]) => ({ name: api })),
+    limit: 100000,
+  });
+  const rows = [], totals = {}; // `${date}|${i}` -> sum
+  for (const r of (data.rows || [])) {
+    const day = ymd(r.dimensionValues[0].value);
+    const channel = r.dimensionValues[1].value;
+    r.metricValues.forEach((mv, i) => {
+      const v = Number(mv.value || 0);
+      const [name] = GA4_METRICS[i];
+      rows.push({ metric_name: name, metric_date: day, value: v, unit: "int",
+                  account_ext_id: src.external_id, entity: src.params?.brand || "", qualifier: channel });
+      const tk = `${day}|${i}`; totals[tk] = (totals[tk] || 0) + v;
+    });
+  }
+  for (const [tk, v] of Object.entries(totals)) {  // unsegmented totals (qualifier='')
+    const [day, i] = tk.split("|");
+    rows.push({ metric_name: GA4_METRICS[+i][0], metric_date: day, value: v, unit: "int",
+                account_ext_id: src.external_id, entity: src.params?.brand || "" });
+  }
+  return rows;
+}
+
+// ---- Meta (Graph API): daily ad-account insights ----
+async function pullMeta(src) {
+  if (!META_ACCESS_TOKEN) return [];                       // skip until token configured
+  const fields = "impressions,clicks,ctr,cpc,spend,actions";
+  const url = `${META_API}/act_${src.external_id}/insights?level=account&time_increment=1`
+            + `&time_range=${encodeURIComponent(JSON.stringify({ since: START, until: END }))}`
+            + `&fields=${fields}&access_token=${META_ACCESS_TOKEN}`;
+  const d = await fetch(url).then(r => r.json());
+  if (d.error) throw new Error(`meta ${src.external_id}: ${d.error.message}`);
+  const rows = [];
+  for (const day of (d.data || [])) {
+    const date = day.date_start;
+    const lead = (day.actions || []).find(a => a.action_type === "lead");
+    const link = (day.actions || []).find(a => a.action_type === "link_click");
+    const push = (name, val, unit) => { if (val != null) rows.push({ metric_name: name, metric_date: date, value: val, unit }); };
+    push("impressions", toNumber(day.impressions), "int");
+    push("clicks",      toNumber(day.clicks), "int");
+    push("ctr",         toNumber(day.ctr), "pct");
+    push("cpc",         toNumber(day.cpc), "usd");
+    push("spend",       toNumber(day.spend), "usd");
+    push("leads",       lead ? Number(lead.value) : null, "int");
+    push("link_clicks", link ? Number(link.value) : null, "int");
+  }
+  return rows;
+}
+
+// ---- Pages (Composio Facebook): organic daily insights ----
+const PAGE_METRICS = { page_daily_follows_unique: "followers", page_media_view: "reach",
+  page_post_engagements: "engagement", page_video_views: "video_views" };
+async function pullPages(src) {
+  if (!CA.facebook) return [];                              // skip until FB connection configured
+  const data = await composioExec("FACEBOOK_GET_PAGE_INSIGHTS", CA.facebook, {
+    page_id: src.external_id, period: "day", since: START, until: END,
+    metrics: Object.keys(PAGE_METRICS).join(","),
+  }).catch(e => { console.warn(`Pages ${src.slug}: ${e.message}`); return null; });
+  const series = data?.data || data?.insights || [];       // shape validated at probe
+  const rows = [];
+  for (const m of series) {
+    const name = PAGE_METRICS[m.name]; if (!name) continue;
+    for (const v of (m.values || [])) {
+      const date = (v.end_time || "").slice(0, 10); if (!date) continue;
+      if (v.value != null && typeof v.value === "number")
+        rows.push({ metric_name: name, metric_date: date, value: v.value, unit: "int" });
+    }
+  }
+  return rows;
+}
+
+// ---- Google Ads Ledger sheet -> metrics_daily (campaign + conversion_action) ----
+async function pullGoogleAdsSheet(cidToSlug) {
+  if (!COMPOSIO_API_KEY) return {};
+  const res = await composioExec("GOOGLESHEETS_BATCH_GET", CA.sheets, {
+    spreadsheet_id: GA_LEDGER_SHEET, ranges: ["Campaigns!A2:H100000", "Conversions!A2:F100000"],
+  });
+  const vr = res.valueRanges || res.response?.data?.valueRanges || [];
+  const camp = (vr[0]?.values) || [], conv = (vr[1]?.values) || [];
+  const digits = s => String(s || "").replace(/[^0-9]/g, "");
+  const inWindow = d => d >= START && d <= END;
+  // dedup latest by key (sheet appends; last write wins)
+  const campRows = {}, convRows = {};
+  for (const r of camp) { const [date,cid,acct,campaign,imp,clk,cost,convs] = r;
+    if (!date || !inWindow(date) || !cidToSlug[digits(cid)]) continue;
+    campRows[`${cid}|${campaign}|${date}`] = { date, cid, campaign, imp, clk, cost, convs }; }
+  for (const r of conv) { const [date,cid,acct,campaign,action,convs] = r;
+    if (!date || !inWindow(date) || !cidToSlug[digits(cid)]) continue;
+    convRows[`${cid}|${campaign}|${action}|${date}`] = { date, cid, campaign, action, convs }; }
+  const bySlug = {}; // slug -> rows
+  const add = (slug, row) => { (bySlug[slug] = bySlug[slug] || []).push(row); };
+  for (const v of Object.values(campRows)) { const slug = cidToSlug[digits(v.cid)];
+    const base = { metric_date: v.date, account_ext_id: digits(v.cid), entity: v.campaign || "" };
+    add(slug, { ...base, metric_name: "impressions", value: toNumber(v.imp), unit: "int" });
+    add(slug, { ...base, metric_name: "clicks",      value: toNumber(v.clk), unit: "int" });
+    add(slug, { ...base, metric_name: "spend",       value: toNumber(v.cost), unit: "usd" });
+    add(slug, { ...base, metric_name: "conversions", value: toNumber(v.convs), unit: "int" }); }
+  for (const v of Object.values(convRows)) { const slug = cidToSlug[digits(v.cid)];
+    add(slug, { metric_date: v.date, account_ext_id: digits(v.cid), entity: v.campaign || "",
+                qualifier: v.action || "", metric_name: "conversion_action", value: toNumber(v.convs), unit: "int" }); }
+  const tally = {};
+  for (const [slug, rows] of Object.entries(bySlug)) tally[slug] = await ingest("google_ads", slug, rows.filter(r => r.value != null));
+  return tally;
 }
 
 async function main() {
-  console.log(`Orchestrator run for ${DAY} (America/New_York)`);
+  console.log(`Orchestrator run ${START}..${END} (America/New_York)`);
   const sources = await sb(
-    "client_sources?select=source,external_id,params,clients!inner(slug,status)&active=eq.true&clients.status=eq.active"
+    "client_sources?select=source,external_id,params,active,clients!inner(slug,status)&active=eq.true&clients.status=eq.active"
   );
+  const cidToSlug = {};
+  for (const s of sources) if (s.source === "google_ads")
+    cidToSlug[String(s.external_id).replace(/[^0-9]/g, "")] = s.clients.slug;
+
   const tally = {};
   for (const s of sources) {
     const src = { ...s, slug: s.clients.slug };
-    let rows = [];
     try {
+      let rows = [];
       if (src.source === "callrail") rows = await pullCallRail(src);
-      else if (src.source === "ga4" || src.source === "meta") rows = await pullComposio(src);
-      else continue; // google_ads = push via MCC Script
-      const n = await ingest(src.source, src.slug, rows);
+      else if (src.source === "ga4") rows = await pullGA4(src);
+      else if (src.source === "meta") rows = await pullMeta(src);
+      else if (src.source === "pages") rows = await pullPages(src);
+      else continue; // google_ads handled from the Ledger sheet below
+      const n = await ingest(src.source, src.slug, rows.filter(r => r.value != null));
       tally[src.source] = (tally[src.source] || 0) + n;
-    } catch (e) {
-      console.error(`  ! ${src.slug}/${src.source}: ${e.message}`);
-    }
+    } catch (e) { console.error(`  ! ${src.slug}/${src.source}: ${e.message}`); }
   }
-  console.log("Ingested:", JSON.stringify(tally));
+  try { const g = await pullGoogleAdsSheet(cidToSlug);
+    tally.google_ads = Object.values(g).reduce((a, b) => a + b, 0);
+  } catch (e) { console.error(`  ! google_ads sheet: ${e.message}`); }
 
-  // trigger the SMART goal tracker (idempotent per as_of day)
+  console.log("Ingested rows:", JSON.stringify(tally));
   const tracked = await sb("rpc/run_goal_tracker", { method: "POST", body: JSON.stringify({}) });
-  console.log("Tracker:", JSON.stringify(tracked));
-  console.log("Done.");
+  await sb("run_log", { method: "POST", headers: { Prefer: "return=minimal" },
+    body: JSON.stringify({ period: START === END ? START : `${START}..${END}`,
+      clients_processed: new Set(sources.map(s => s.clients.slug)).size,
+      rows_written: Object.values(tally).reduce((a, b) => a + b, 0),
+      sources: Object.keys(tally), notes: `orchestrator; tracker ${JSON.stringify(tracked?.[0] || tracked)}` }) });
+  console.log("Tracker:", JSON.stringify(tracked), "\nDone.");
 }
 
 main().catch(e => { console.error(e); process.exit(1); });
