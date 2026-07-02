@@ -13,7 +13,7 @@ export default function LoginPage({ searchParams }) {
             <input name="password" type="password" autoComplete="current-password" required /></label>
           <button type="submit">Sign in</button>
         </form>
-        {error ? <div className="err">{error}</div> : null}
+        {error ? <div className="err">Sign-in failed — check your email and password.</div> : null}
       </div>
     </main>
   );

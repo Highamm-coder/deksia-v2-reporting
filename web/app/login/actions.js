@@ -8,7 +8,8 @@ export async function login(formData) {
     email: String(formData.get("email") || ""),
     password: String(formData.get("password") || ""),
   });
-  if (error) redirect("/login?error=" + encodeURIComponent(error.message));
+  // generic error — never surface provider error text to the URL/UI
+  if (error) redirect("/login?error=1");
   redirect("/");
 }
 

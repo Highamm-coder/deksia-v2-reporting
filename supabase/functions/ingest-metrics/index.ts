@@ -1,7 +1,7 @@
 // ingest-metrics — generic idempotent ingest into public.metrics_daily.
-// Deployed with verify_jwt=false; custom bearer auth: Authorization: Bearer <ingest_token>.
-// Body: { source, rows:[{metric_name, metric_date, value, unit?, meta?}],
-//         client_id? | client_slug? | cid? }  (one resolver required)
+// verify_jwt=false; custom bearer auth against Vault `ingest_token` (write path only).
+// Body: { source, rows:[{metric_name, metric_date, value, unit?, meta?, account_ext_id?, entity?, qualifier?}],
+//   client_id? | client_slug? | cid? }
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -11,15 +11,31 @@ const VALID_SOURCES = ["google_ads", "ga4", "meta", "callrail", "pages"];
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
+// Constant-time-ish token check: compare SHA-256 digests so timing reveals nothing
+// about the token value itself.
+async function tokenMatches(presented: string, expected: string): Promise<boolean> {
+  const enc = new TextEncoder();
+  const [a, b] = await Promise.all([
+    crypto.subtle.digest("SHA-256", enc.encode(presented)),
+    crypto.subtle.digest("SHA-256", enc.encode(expected)),
+  ]);
+  const av = new Uint8Array(a), bv = new Uint8Array(b);
+  let diff = 0;
+  for (let i = 0; i < av.length; i++) diff |= av[i] ^ bv[i];
+  return diff === 0;
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
   const supabase = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
-  const auth = req.headers.get("Authorization") ?? "";
-  const presented = auth.replace(/^Bearer\s+/i, "").trim();
+  const presented = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
   const { data: expected, error: tokErr } = await supabase.rpc("get_ingest_token");
-  if (tokErr) return json({ error: "token lookup failed", detail: tokErr.message }, 500);
-  if (!presented || presented !== expected) return json({ error: "unauthorized" }, 401);
+  if (tokErr || !expected) {
+    console.error("token lookup failed:", tokErr?.message);
+    return json({ error: "auth unavailable" }, 500);
+  }
+  if (!presented || !(await tokenMatches(presented, expected))) return json({ error: "unauthorized" }, 401);
 
   let body: any;
   try { body = await req.json(); } catch { return json({ error: "invalid JSON" }, 400); }
@@ -57,6 +73,9 @@ Deno.serve(async (req: Request) => {
 
   const { error } = await supabase.from("metrics_daily")
     .upsert(payload, { onConflict: "client_id,source,metric_name,metric_date,account_ext_id,entity,qualifier" });
-  if (error) return json({ error: "upsert failed", detail: error.message }, 500);
+  if (error) {
+    console.error("upsert failed:", error.message);
+    return json({ error: "upsert failed" }, 500);
+  }
   return json({ ok: true, client_id: clientId, source, rows_upserted: payload.length });
 });

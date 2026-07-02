@@ -43,8 +43,25 @@ const START = process.env.RUN_START || process.env.RUN_DATE || etDate(-1);
 const END   = process.env.RUN_END   || process.env.RUN_DATE || etDate(-1);
 
 // ---- helpers ----
+// fetch with a 30s timeout — fail fast instead of hanging a scheduled run
+async function fetchT(url, opts = {}, ms = 30000) {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(new Error(`timeout after ${ms}ms`)), ms);
+  try { return await fetch(url, { ...opts, signal: ctl.signal }); }
+  finally { clearTimeout(t); }
+}
+
+// bounded-concurrency map (don't hammer APIs; don't run serially either)
+async function mapLimit(items, limit, fn) {
+  const out = new Array(items.length); let i = 0;
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) || 1 }, async () => {
+    while (i < items.length) { const idx = i++; out[idx] = await fn(items[idx], idx); }
+  }));
+  return out;
+}
+
 async function sb(path, opts = {}) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+  const res = await fetchT(`${SUPABASE_URL}/rest/v1/${path}`, {
     ...opts,
     headers: {
       apikey: SUPABASE_SERVICE_ROLE_KEY,
@@ -59,7 +76,7 @@ async function sb(path, opts = {}) {
 
 async function ingest(source, clientSlug, rows) {
   if (!rows.length) return 0;
-  const res = await fetch(`${SUPABASE_URL}/functions/v1/ingest-metrics`, {
+  const res = await fetchT(`${SUPABASE_URL}/functions/v1/ingest-metrics`, {
     method: "POST",
     headers: { Authorization: `Bearer ${INGEST_TOKEN}`, "Content-Type": "application/json" },
     body: JSON.stringify({ source, client_slug: clientSlug, rows }),
@@ -81,7 +98,7 @@ const ymd = (yyyymmdd) => `${yyyymmdd.slice(0,4)}-${yyyymmdd.slice(4,6)}-${yyyym
 
 async function composioExec(toolSlug, connectedAccountId, args) {
   if (!COMPOSIO_API_KEY) throw new Error("COMPOSIO_API_KEY not set");
-  const res = await fetch(`https://backend.composio.dev/api/v3/tools/execute/${toolSlug}`, {
+  const res = await fetchT(`https://backend.composio.dev/api/v3/tools/execute/${toolSlug}`, {
     method: "POST",
     headers: { "x-api-key": COMPOSIO_API_KEY, "Content-Type": "application/json" },
     body: JSON.stringify({ connected_account_id: connectedAccountId, arguments: args }),
@@ -101,16 +118,19 @@ async function pullCallRail(src) {
   const base = `https://api.callrail.com/v3/a/${account}`;
   const fetchAll = async (endpoint, dateField) => {
     const byKey = {}; // `${date}|${source}` -> count
-    for (let page = 1; page <= 20; page++) {
+    const HARD_CAP = 200; // sanity cap (~50k records/day/company); warn if hit
+    for (let page = 1; ; page++) {
       const q = `company_id=${company}&start_date=${START}&end_date=${END}&per_page=250&page=${page}&fields=${dateField},source`;
-      const d = await fetch(`${base}/${endpoint}.json?${q}`, { headers: hdr }).then(r => r.json());
+      const d = await fetchT(`${base}/${endpoint}.json?${q}`, { headers: hdr }).then(r => r.json());
       const recs = d[endpoint === "calls" ? "calls" : "form_submissions"] || [];
       for (const r of recs) {
         const day = (r[dateField] || "").slice(0, 10); if (!day) continue;
         const s = r.source || "Unknown";
         byKey[`${day}|${s}`] = (byKey[`${day}|${s}`] || 0) + 1;
       }
-      if (page >= (d.total_pages || 1) || !recs.length) break;
+      const totalPages = d.total_pages || 1;
+      if (page >= totalPages || !recs.length) break;
+      if (page >= HARD_CAP) { console.warn(`! CallRail ${endpoint} ${company}: TRUNCATED at ${HARD_CAP}/${totalPages} pages`); break; }
     }
     return byKey;
   };
@@ -165,7 +185,7 @@ async function pullMeta(src) {
   const url = `${META_API}/act_${src.external_id}/insights?level=account&time_increment=1`
             + `&time_range=${encodeURIComponent(JSON.stringify({ since: START, until: END }))}`
             + `&fields=${fields}&access_token=${META_ACCESS_TOKEN}`;
-  const d = await fetch(url).then(r => r.json());
+  const d = await fetchT(url).then(r => r.json());
   if (d.error) throw new Error(`meta ${src.external_id}: ${d.error.message}`);
   const rows = [];
   for (const day of (d.data || [])) {
@@ -249,32 +269,39 @@ async function main() {
   for (const s of sources) if (s.source === "google_ads")
     cidToSlug[String(s.external_id).replace(/[^0-9]/g, "")] = s.clients.slug;
 
-  const tally = {};
-  for (const s of sources) {
+  const PULLERS = { callrail: pullCallRail, ga4: pullGA4, meta: pullMeta, pages: pullPages };
+  const tally = {}, health = {}; // health[source] = {ok, fail}
+  const mark = (source, ok) => { const h = health[source] = health[source] || { ok: 0, fail: 0 }; ok ? h.ok++ : h.fail++; };
+
+  // bounded parallelism: 5 concurrent pulls (google_ads comes from the Ledger sheet below)
+  await mapLimit(sources.filter(s => PULLERS[s.source]), 5, async (s) => {
     const src = { ...s, slug: s.clients.slug };
     try {
-      let rows = [];
-      if (src.source === "callrail") rows = await pullCallRail(src);
-      else if (src.source === "ga4") rows = await pullGA4(src);
-      else if (src.source === "meta") rows = await pullMeta(src);
-      else if (src.source === "pages") rows = await pullPages(src);
-      else continue; // google_ads handled from the Ledger sheet below
+      const rows = await PULLERS[src.source](src);
       const n = await ingest(src.source, src.slug, rows.filter(r => r.value != null));
       tally[src.source] = (tally[src.source] || 0) + n;
-    } catch (e) { console.error(`  ! ${src.slug}/${src.source}: ${e.message}`); }
-  }
+      mark(src.source, true);
+    } catch (e) { console.error(`  ! ${src.slug}/${src.source}: ${e.message}`); mark(src.source, false); }
+  });
   try { const g = await pullGoogleAdsSheet(cidToSlug);
     tally.google_ads = Object.values(g).reduce((a, b) => a + b, 0);
-  } catch (e) { console.error(`  ! google_ads sheet: ${e.message}`); }
+    mark("google_ads", true);
+  } catch (e) { console.error(`  ! google_ads sheet: ${e.message}`); mark("google_ads", false); }
 
   console.log("Ingested rows:", JSON.stringify(tally));
+  console.log("Source health:", JSON.stringify(health));
+  // a source where EVERY pull failed = red run (surface it, don't exit green)
+  const deadSources = Object.entries(health).filter(([, h]) => h.fail > 0 && h.ok === 0).map(([k]) => k);
+  if (deadSources.length) process.exitCode = 1;
   const tracked = await sb("rpc/run_goal_tracker", { method: "POST", body: JSON.stringify({}) });
   await sb("run_log", { method: "POST", headers: { Prefer: "return=minimal" },
     body: JSON.stringify({ period: START === END ? START : `${START}..${END}`,
       clients_processed: new Set(sources.map(s => s.clients.slug)).size,
       rows_written: Object.values(tally).reduce((a, b) => a + b, 0),
-      sources: Object.keys(tally), notes: `orchestrator; tracker ${JSON.stringify(tracked?.[0] || tracked)}` }) });
-  console.log("Tracker:", JSON.stringify(tracked), "\nDone.");
+      sources: Object.keys(tally),
+      notes: `orchestrator; tracker ${JSON.stringify(tracked?.[0] || tracked)}`
+        + (deadSources.length ? `; FAILED sources: ${deadSources.join(",")}` : "") }) });
+  console.log("Tracker:", JSON.stringify(tracked), deadSources.length ? `\nFAILED sources: ${deadSources.join(",")}` : "", "\nDone.");
 }
 
 main().catch(e => { console.error(e); process.exit(1); });

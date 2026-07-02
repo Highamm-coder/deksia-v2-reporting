@@ -7,14 +7,14 @@ const num = (v, d = 0) => (v == null ? "—" : Number(v).toLocaleString(undefine
 export default async function ClientDetail({ params }) {
   const slug = decodeURIComponent(params.slug);
   const supabase = getSupabaseServer();
-  const { data: client } = await supabase.from("clients").select("*").eq("slug", slug).maybeSingle();
-  if (!client) return (<><Header /><main><p>Client not found: {slug}</p></main></>);
-
-  const [{ data: sources }, { data: goals }, { data: pipeline }] = await Promise.all([
-    supabase.from("client_sources").select("*").eq("client_id", client.id).order("source"),
+  // single round trip: embed client_sources via FK, parallel with the two views
+  const [{ data: client }, { data: goals }, { data: pipeline }] = await Promise.all([
+    supabase.from("clients").select("*, client_sources(*)").eq("slug", slug).maybeSingle(),
     supabase.from("v_goal_scoreboard").select("*").eq("slug", slug).order("metric_name"),
     supabase.from("v_pipeline_health").select("*").eq("slug", slug).order("source"),
   ]);
+  if (!client) return (<><Header /><main><p>Client not found: {slug}</p></main></>);
+  const sources = (client.client_sources || []).sort((a, b) => a.source.localeCompare(b.source) || String(a.external_id).localeCompare(String(b.external_id)));
 
   return (
     <>

@@ -74,11 +74,14 @@ const LS_TOKEN = "deksia_dash_token";
 const SOURCES = ["google_ads","meta","ga4","callrail","pages"];
 const SRC_LABEL = {google_ads:"Google Ads", meta:"Meta", ga4:"GA4", callrail:"CallRail", pages:"Pages"};
 
+// Escape any API-sourced string before it hits innerHTML (XSS hardening).
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
 function getToken(){ return (localStorage.getItem(LS_TOKEN)||"").trim(); }
 function showTokenBar(s){ document.getElementById("tokenbar").style.display=s?"block":"none";
   if(s){ const i=document.getElementById("tokenInput"); i.value=getToken(); i.focus(); } }
 function setStatus(m){ document.getElementById("status").textContent=m||""; }
-function showErr(m){ document.getElementById("error").innerHTML=m?`<div class="err">${m}</div>`:""; }
+function showErr(m){ document.getElementById("error").innerHTML=m?`<div class="err">${esc(m)}</div>`:""; }
 function fmtDate(s){ if(!s) return "—"; const d=new Date(s); return d.toLocaleString(undefined,{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"}); }
 
 async function load(){
@@ -118,16 +121,18 @@ function render(rows){
     ["Last sync", fmtDate(lastSync), "var(--txt)"],
   ].map(([l,n,c])=>`<div class="stat"><div class="n" style="color:${c};font-size:${String(n).length>8?'15px':'24px'}">${n}</div><div class="l">${l}</div></div>`).join("");
 
+  const STATUSES=["fresh","stale","no_data"]; // whitelist for class names
   let h=`<table><thead><tr><th>Client</th>${SOURCES.map(s=>`<th>${SRC_LABEL[s]}</th>`).join("")}</tr></thead><tbody>`;
   Object.keys(clients).sort().forEach(slug=>{
-    h+=`<tr><td class="client">${slug}</td>`;
+    h+=`<tr><td class="client">${esc(slug)}</td>`;
     SOURCES.forEach(s=>{
       const r=clients[slug][s];
       if(!r){ h+=`<td><div class="na">·</div></td>`; return; }
-      const rowsTxt = r.rows_30d ? `${r.rows_30d.toLocaleString()} rows · ${r.metric_count} metrics` : "—";
-      h+=`<td><div class="cell ${r.sync_status}">
-            <div class="top"><span class="dot ${r.sync_status}"></span>${r.sync_status.replace("_"," ")}</div>
-            <div class="meta">${r.last_metric_date||"no data"}${r.id_count>1?` · ${r.id_count} accts`:""}</div>
+      const st = STATUSES.includes(r.sync_status) ? r.sync_status : "no_data";
+      const rowsTxt = r.rows_30d ? `${Number(r.rows_30d).toLocaleString()} rows · ${Number(r.metric_count)} metrics` : "—";
+      h+=`<td><div class="cell ${st}">
+            <div class="top"><span class="dot ${st}"></span>${esc(st.replace("_"," "))}</div>
+            <div class="meta">${esc(r.last_metric_date||"no data")}${r.id_count>1?` · ${Number(r.id_count)} accts`:""}</div>
             <div class="meta">${rowsTxt}</div>
           </div></td>`;
     });
