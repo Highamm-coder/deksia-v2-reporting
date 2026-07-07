@@ -8,8 +8,8 @@ goal tracker. The console reads the fresh data automatically — no rebuild.
 ```
 GitHub Actions cron (11:00 UTC / 07:00 ET, daily)
    └─ node orchestrator/run.mjs
-        ├─ GA4        → Analytics Data API   (service account)
-        ├─ Google Ads → Sheets API on Ledger (service account)   ← MCC Script still fills the sheet
+        ├─ GA4        → Analytics Data API   (Google OAuth user token)
+        ├─ Google Ads → Sheets API on Ledger (Google OAuth user token)  ← MCC Script fills the sheet
         ├─ Meta       → Graph API            (system-user token)
         ├─ CallRail   → REST v3              (API key)
         └─ Pages      → Graph API            (best-effort, same Meta token)
@@ -31,7 +31,9 @@ Repo → **Settings → Secrets and variables → Actions → New repository sec
 | `SUPABASE_URL` | `https://ykxauddrsnuwkvimkdhw.supabase.co` |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Project Settings → API → `service_role` key |
 | `INGEST_TOKEN` | Supabase SQL editor: `select decrypted_secret from vault.decrypted_secrets where name='ingest_token';` |
-| `GOOGLE_SERVICE_ACCOUNT_JSON` | the whole service-account JSON file (see below) |
+| `GOOGLE_OAUTH_CLIENT_ID` | Google OAuth client (see below) |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | same OAuth client |
+| `GOOGLE_OAUTH_REFRESH_TOKEN` | minted once by `get-refresh-token.mjs` (see below) |
 | `META_ACCESS_TOKEN` | Meta system-user token (see below) |
 | `CALLRAIL_API_KEY` | your existing CallRail v3 API key |
 
@@ -40,20 +42,35 @@ Repo → **Settings → Secrets and variables → Actions → New repository sec
 
 ---
 
-## 1. Google service account (covers GA4 **and** Google Ads Ledger)
+## 1. Google OAuth (covers GA4 **and** Google Ads Ledger — no per-account grants)
+
+We authenticate **as the Google user that already has access to your GA4 properties + the Ledger
+sheet** (the same identity behind your existing analytics connection). Nothing new to grant — it
+inherits whatever that login can already see.
 
 1. <https://console.cloud.google.com> → pick/create a project.
-2. **APIs & Services → Enable APIs** → enable **Google Analytics Data API** and **Google Sheets API**.
-3. **IAM & Admin → Service Accounts → Create** (e.g. `deksia-reporting`). No roles needed at the
-   project level.
-4. Open the account → **Keys → Add key → Create new key → JSON** → download it. Copy the file's
-   entire contents into the `GOOGLE_SERVICE_ACCOUNT_JSON` secret.
-5. **Grant GA4 access:** GA4 → **Admin → Account access management** (account level, so it sees all
-   properties at once) → add the service account's `client_email` (from the JSON) with the **Viewer**
-   role. (Per-property works too but is 30× the clicks.)
-6. **Grant Ledger access:** open the Google Ads Ledger sheet
-   (`1cEIfUfd_AFd4r82qt9p9imuo7oaqcJqwgZXAGXRSzhU`) → **Share** → add the same `client_email` as
-   **Viewer**.
+2. **APIs & Services → Enabled APIs & services → + Enable APIs** → enable **Google Analytics Data
+   API** and **Google Sheets API**.
+3. **APIs & Services → OAuth consent screen:**
+   - If the login is a **Google Workspace** account in your org (e.g. `@deksia.com`): choose
+     **Internal**. (Best — no verification, the refresh token never expires from policy.)
+   - Otherwise choose **External**, add that login under **Test users**, and — important — click
+     **Publish app** (set publishing status to **In production**). If you leave it in *Testing*,
+     Google **expires the refresh token after 7 days** and the sync breaks weekly.
+4. **APIs & Services → Credentials → + Create Credentials → OAuth client ID → Application type:
+   Desktop app** → Create. Copy the **Client ID** and **Client secret** into the two GitHub secrets
+   `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET`.
+5. **Mint the refresh token once**, locally, on your machine (Node 18+ installed):
+   ```bash
+   GOOGLE_OAUTH_CLIENT_ID=<id> GOOGLE_OAUTH_CLIENT_SECRET=<secret> \
+     node orchestrator/get-refresh-token.mjs
+   ```
+   It opens a browser — **sign in as the Google account that can see all your GA4 properties** and
+   approve. (You'll see an "unverified app" screen for an External app — click *Advanced → Go to…*;
+   it's your own app.) The terminal prints a refresh token → paste it into the GitHub secret
+   `GOOGLE_OAUTH_REFRESH_TOKEN`. You won't need to run this again unless the token is revoked.
+6. **Ledger sheet:** the same login almost certainly already has access (it's a Deksia sheet). If not,
+   open it (`1cEIfUfd_AFd4r82qt9p9imuo7oaqcJqwgZXAGXRSzhU`) → **Share** → give that login Viewer.
 
 ## 2. Meta system-user token (Meta ads + Pages)
 

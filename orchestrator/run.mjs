@@ -11,10 +11,11 @@
 //
 // Env (GitHub Actions secrets):
 //   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, INGEST_TOKEN   (required)
-//   GOOGLE_SERVICE_ACCOUNT_JSON  Google service-account key JSON (GA4 Data API +
-//                                Sheets API). Grant it Viewer on the GA4 account and
-//                                share the Ledger sheet with its client_email. Required
-//                                for GA4 + Google Ads; without it those sources skip.
+//   GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET / GOOGLE_OAUTH_REFRESH_TOKEN
+//                           Google OAuth as the user that already has access to all
+//                           GA4 properties + the Ledger sheet (no per-account grants).
+//                           Powers GA4 Data API + Sheets API; without them those skip.
+//                           Mint the refresh token once via orchestrator/get-refresh-token.mjs.
 //   CALLRAIL_API_KEY        CallRail v3 REST (calls/forms)
 //   META_ACCESS_TOKEN       Meta Graph API — long-lived system-user token (ad-account
 //                           insights; + pages_read_engagement/read_insights for Pages)
@@ -22,8 +23,10 @@
 
 const {
   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, INGEST_TOKEN,
-  CALLRAIL_API_KEY, META_ACCESS_TOKEN, GOOGLE_SERVICE_ACCOUNT_JSON,
+  CALLRAIL_API_KEY, META_ACCESS_TOKEN,
+  GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, GOOGLE_OAUTH_REFRESH_TOKEN,
 } = process.env;
+const GOOGLE_READY = !!(GOOGLE_OAUTH_CLIENT_ID && GOOGLE_OAUTH_CLIENT_SECRET && GOOGLE_OAUTH_REFRESH_TOKEN);
 
 for (const [k, v] of Object.entries({ SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, INGEST_TOKEN })) {
   if (!v) { console.error(`Missing required env ${k}`); process.exit(1); }
@@ -94,30 +97,24 @@ function toNumber(s) {
 }
 const ymd = (yyyymmdd) => `${yyyymmdd.slice(0,4)}-${yyyymmdd.slice(4,6)}-${yyyymmdd.slice(6,8)}`;
 
-// ---- Google service-account auth (GA4 Data API + Sheets API), no deps ----
-import { createSign } from "node:crypto";
-const b64url = (buf) => Buffer.from(buf).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+// ---- Google OAuth (GA4 Data API + Sheets API) via refresh token, no deps ----
+// Authenticates AS the user that already has access to every GA4 property + the
+// Ledger sheet — so there are no per-account service-account grants to maintain.
 let _googleToken = null; // { token, exp } — cached for the run
 
 async function getGoogleToken() {
   if (_googleToken && _googleToken.exp > Date.now() / 1000 + 60) return _googleToken.token;
-  if (!GOOGLE_SERVICE_ACCOUNT_JSON) throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON not set");
-  let sa;
-  try { sa = JSON.parse(GOOGLE_SERVICE_ACCOUNT_JSON); }
-  catch { throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON is not valid JSON"); }
-  const key = String(sa.private_key || "").replace(/\\n/g, "\n"); // tolerate escaped newlines
-  if (!sa.client_email || !key) throw new Error("service account JSON missing client_email/private_key");
+  if (!GOOGLE_READY) throw new Error("GOOGLE_OAUTH_* not set (client id/secret/refresh token)");
   const now = Math.floor(Date.now() / 1000);
-  const scope = "https://www.googleapis.com/auth/analytics.readonly https://www.googleapis.com/auth/spreadsheets.readonly";
-  const header = b64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
-  const claim = b64url(JSON.stringify({
-    iss: sa.client_email, scope, aud: "https://oauth2.googleapis.com/token", iat: now, exp: now + 3600,
-  }));
-  const sig = b64url(createSign("RSA-SHA256").update(`${header}.${claim}`).sign(key));
   const res = await fetchT("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: `${header}.${claim}.${sig}` }),
+    body: new URLSearchParams({
+      grant_type: "refresh_token",
+      client_id: GOOGLE_OAUTH_CLIENT_ID,
+      client_secret: GOOGLE_OAUTH_CLIENT_SECRET,
+      refresh_token: GOOGLE_OAUTH_REFRESH_TOKEN,
+    }),
   });
   const out = await res.json().catch(() => ({}));
   if (!res.ok || !out.access_token) throw new Error(`google token: ${res.status} ${JSON.stringify(out).slice(0, 200)}`);
@@ -170,6 +167,7 @@ async function pullCallRail(src) {
 const GA4_METRICS = [["sessions","sessions"],["users","totalUsers"],["new_users","newUsers"],
   ["engaged_sessions","engagedSessions"],["key_events","keyEvents"]];
 async function pullGA4(src) {
+  if (!GOOGLE_READY) return [];
   const token = await getGoogleToken();
   const res = await fetchT(`https://analyticsdata.googleapis.com/v1beta/properties/${src.external_id}:runReport`, {
     method: "POST",
@@ -258,7 +256,7 @@ async function pullPages(src) {
 
 // ---- Google Ads Ledger sheet -> metrics_daily (campaign + conversion_action) ----
 async function pullGoogleAdsSheet(cidToSlug) {
-  if (!GOOGLE_SERVICE_ACCOUNT_JSON) return {};
+  if (!GOOGLE_READY) return {};
   const token = await getGoogleToken();
   const ranges = ["Campaigns!A2:H100000", "Conversions!A2:F100000"].map(r => `ranges=${encodeURIComponent(r)}`).join("&");
   const res = await fetchT(`https://sheets.googleapis.com/v4/spreadsheets/${GA_LEDGER_SHEET}/values:batchGet?${ranges}`, {
