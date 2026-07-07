@@ -8,7 +8,7 @@
   :root{
     --bg:#0f1419; --panel:#1a212b; --panel2:#222c38; --line:#2c3744;
     --txt:#e7edf3; --muted:#8da0b3; --accent:#4da3ff;
-    --fresh:#34a853; --stale:#f5a623; --nodata:#3a4654; --na:#222c38;
+    --fresh:#34a853; --idle:#5a8caf; --stale:#f5a623; --nodata:#3a4654; --na:#222c38;
   }
   *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
   header{display:flex;align-items:center;gap:16px;padding:16px 24px;border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:5}
@@ -28,11 +28,12 @@
   td.client{font-weight:600;white-space:nowrap}
   .cell{display:flex;flex-direction:column;gap:2px;border-radius:7px;padding:7px 9px;min-width:104px}
   .cell.fresh{background:rgba(52,168,83,.13);box-shadow:inset 0 0 0 1px rgba(52,168,83,.35)}
+  .cell.idle{background:rgba(90,140,175,.12);box-shadow:inset 0 0 0 1px rgba(90,140,175,.35)}
   .cell.stale{background:rgba(245,166,35,.12);box-shadow:inset 0 0 0 1px rgba(245,166,35,.35)}
   .cell.no_data{background:rgba(58,70,84,.25);box-shadow:inset 0 0 0 1px var(--line)}
   .cell .top{display:flex;align-items:center;gap:6px;font-weight:600;font-size:12px;text-transform:capitalize}
   .dot{width:8px;height:8px;border-radius:50%}
-  .dot.fresh{background:var(--fresh)} .dot.stale{background:var(--stale)} .dot.no_data{background:var(--nodata)}
+  .dot.fresh{background:var(--fresh)} .dot.idle{background:var(--idle)} .dot.stale{background:var(--stale)} .dot.no_data{background:var(--nodata)}
   .cell .meta{color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}
   .na{color:#3a4654;text-align:center;font-size:18px}
   .legend{display:flex;gap:16px;flex-wrap:wrap;margin:0 0 14px;color:var(--muted);font-size:12px;align-items:center}
@@ -60,9 +61,10 @@
   <div id="error"></div>
   <div class="cards" id="stats"></div>
   <div class="legend">
-    <span><span class="dot fresh"></span>Fresh (synced ≤ 2 days)</span>
-    <span><span class="dot stale"></span>Stale (configured, sync overdue)</span>
-    <span><span class="dot no_data"></span>No data yet (configured, never synced)</span>
+    <span><span class="dot fresh"></span>Fresh (recent data)</span>
+    <span><span class="dot idle"></span>Idle (connector OK, no recent activity — e.g. no spend)</span>
+    <span><span class="dot stale"></span>Stale (source connector behind — needs attention)</span>
+    <span><span class="dot no_data"></span>No data yet (never synced)</span>
     <span><span class="na">·</span> not configured</span>
   </div>
   <div id="matrix"></div>
@@ -103,7 +105,7 @@ async function load(){
 function render(rows){
   // index by client -> source
   const clients={}; let lastSync=null;
-  const counts={fresh:0,stale:0,no_data:0}, rows30={};
+  const counts={fresh:0,idle:0,stale:0,no_data:0}, rows30={};
   rows.forEach(r=>{
     (clients[r.slug]=clients[r.slug]||{})[r.source]=r;
     counts[r.sync_status]=(counts[r.sync_status]||0)+1;
@@ -115,13 +117,14 @@ function render(rows){
   document.getElementById("stats").innerHTML=[
     ["Clients", Object.keys(clients).length, "var(--accent)"],
     ["Flowing", counts.fresh, "var(--fresh)"],
+    ["Idle", counts.idle, "var(--idle)"],
     ["Stale", counts.stale, "var(--stale)"],
     ["No data", counts.no_data, "var(--nodata)"],
     ["Rows (30d)", totalRows.toLocaleString(), "var(--txt)"],
     ["Last sync", fmtDate(lastSync), "var(--txt)"],
   ].map(([l,n,c])=>`<div class="stat"><div class="n" style="color:${c};font-size:${String(n).length>8?'15px':'24px'}">${n}</div><div class="l">${l}</div></div>`).join("");
 
-  const STATUSES=["fresh","stale","no_data"]; // whitelist for class names
+  const STATUSES=["fresh","idle","stale","no_data"]; // whitelist for class names
   let h=`<table><thead><tr><th>Client</th>${SOURCES.map(s=>`<th>${SRC_LABEL[s]}</th>`).join("")}</tr></thead><tbody>`;
   Object.keys(clients).sort().forEach(slug=>{
     h+=`<tr><td class="client">${esc(slug)}</td>`;

@@ -23,6 +23,12 @@ export default async function Overview() {
       <Header />
       <main>
         <h2>Pipeline Health — {fresh}/{pipeline?.length ?? 0} fresh</h2>
+        <p className="muted" style={{ margin: "-4px 0 10px", fontSize: 12, display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
+          <span><span className="pill fresh">fresh</span> recent data</span>
+          <span><span className="pill idle">idle</span> connector OK, no recent activity (e.g. no spend)</span>
+          <span><span className="pill stale">stale</span> connector behind — needs attention</span>
+          <span><span className="pill no_data">no data</span> never synced</span>
+        </p>
         <table>
           <thead><tr><th>Client</th><th>Source</th><th>Status</th><th>Last data</th><th className="num">Rows 30d</th><th className="num">Metrics</th></tr></thead>
           <tbody>

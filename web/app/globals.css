@@ -20,6 +20,7 @@ th { color:var(--muted); font-weight:600; font-size:11px; text-transform:upperca
 tr:last-child td { border-bottom:none; } td.num { text-align:right; font-variant-numeric:tabular-nums; }
 .pill { display:inline-block; padding:2px 9px; border-radius:999px; font-size:11px; font-weight:600; text-transform:capitalize; }
 .fresh,.on_track { background:rgba(52,168,83,.16); color:var(--on); }
+.idle { background:rgba(90,140,175,.16); color:#7fb0d8; }
 .stale,.at_risk { background:rgba(245,166,35,.16); color:var(--risk); }
 .no_data,.pending { background:rgba(107,119,133,.18); color:var(--pending); }
 .off_track,.missed { background:rgba(234,67,53,.16); color:var(--off); }
