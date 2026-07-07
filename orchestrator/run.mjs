@@ -5,32 +5,30 @@
 //
 // Date boundaries: America/New_York. Safe to re-run (ingest + tracker idempotent).
 //
+// Fully headless — every source goes direct to the vendor API. No Composio, no
+// Claude session required. Runs on GitHub Actions cron (see .github/workflows and
+// orchestrator/HEADLESS-SETUP.md for the credential checklist).
+//
 // Env (GitHub Actions secrets):
 //   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, INGEST_TOKEN   (required)
+//   GOOGLE_SERVICE_ACCOUNT_JSON  Google service-account key JSON (GA4 Data API +
+//                                Sheets API). Grant it Viewer on the GA4 account and
+//                                share the Ledger sheet with its client_email. Required
+//                                for GA4 + Google Ads; without it those sources skip.
 //   CALLRAIL_API_KEY        CallRail v3 REST (calls/forms)
-//   COMPOSIO_API_KEY        GA4 + Pages + Google Ads Ledger sheet (Composio hosted API)
-//   META_ACCESS_TOKEN       Meta Graph API (ad-account insights); optional
+//   META_ACCESS_TOKEN       Meta Graph API — long-lived system-user token (ad-account
+//                           insights; + pages_read_engagement/read_insights for Pages)
 //   RUN_START / RUN_END     optional YYYY-MM-DD window override (default = yesterday ET)
-//   *_CONNECTED_ACCOUNT_ID  optional Composio connected-account overrides
-//
-// Composio hosted execute API: POST /api/v3/tools/execute/{slug}, header x-api-key,
-// body { connected_account_id, arguments }.  (docs.composio.dev/api-reference)
 
 const {
   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, INGEST_TOKEN,
-  CALLRAIL_API_KEY, COMPOSIO_API_KEY, META_ACCESS_TOKEN,
+  CALLRAIL_API_KEY, META_ACCESS_TOKEN, GOOGLE_SERVICE_ACCOUNT_JSON,
 } = process.env;
 
 for (const [k, v] of Object.entries({ SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, INGEST_TOKEN })) {
   if (!v) { console.error(`Missing required env ${k}`); process.exit(1); }
 }
 
-// Composio connected-account IDs (this workspace; override via env).
-const CA = {
-  ga4:      process.env.GA4_CONNECTED_ACCOUNT_ID      || "google_analytics_duhat-aspace",
-  sheets:   process.env.SHEETS_CONNECTED_ACCOUNT_ID   || "googlesheets_divot-reroll",
-  facebook: process.env.FACEBOOK_CONNECTED_ACCOUNT_ID || "",
-};
 const GA_LEDGER_SHEET = "1cEIfUfd_AFd4r82qt9p9imuo7oaqcJqwgZXAGXRSzhU";
 const META_API = "https://graph.facebook.com/v21.0";
 
@@ -96,17 +94,35 @@ function toNumber(s) {
 }
 const ymd = (yyyymmdd) => `${yyyymmdd.slice(0,4)}-${yyyymmdd.slice(4,6)}-${yyyymmdd.slice(6,8)}`;
 
-async function composioExec(toolSlug, connectedAccountId, args) {
-  if (!COMPOSIO_API_KEY) throw new Error("COMPOSIO_API_KEY not set");
-  const res = await fetchT(`https://backend.composio.dev/api/v3/tools/execute/${toolSlug}`, {
+// ---- Google service-account auth (GA4 Data API + Sheets API), no deps ----
+import { createSign } from "node:crypto";
+const b64url = (buf) => Buffer.from(buf).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+let _googleToken = null; // { token, exp } — cached for the run
+
+async function getGoogleToken() {
+  if (_googleToken && _googleToken.exp > Date.now() / 1000 + 60) return _googleToken.token;
+  if (!GOOGLE_SERVICE_ACCOUNT_JSON) throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON not set");
+  let sa;
+  try { sa = JSON.parse(GOOGLE_SERVICE_ACCOUNT_JSON); }
+  catch { throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON is not valid JSON"); }
+  const key = String(sa.private_key || "").replace(/\\n/g, "\n"); // tolerate escaped newlines
+  if (!sa.client_email || !key) throw new Error("service account JSON missing client_email/private_key");
+  const now = Math.floor(Date.now() / 1000);
+  const scope = "https://www.googleapis.com/auth/analytics.readonly https://www.googleapis.com/auth/spreadsheets.readonly";
+  const header = b64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+  const claim = b64url(JSON.stringify({
+    iss: sa.client_email, scope, aud: "https://oauth2.googleapis.com/token", iat: now, exp: now + 3600,
+  }));
+  const sig = b64url(createSign("RSA-SHA256").update(`${header}.${claim}`).sign(key));
+  const res = await fetchT("https://oauth2.googleapis.com/token", {
     method: "POST",
-    headers: { "x-api-key": COMPOSIO_API_KEY, "Content-Type": "application/json" },
-    body: JSON.stringify({ connected_account_id: connectedAccountId, arguments: args }),
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: `${header}.${claim}.${sig}` }),
   });
   const out = await res.json().catch(() => ({}));
-  if (!res.ok || out.successful === false || out.error)
-    throw new Error(`composio ${toolSlug}: ${res.status} ${JSON.stringify(out.error || out).slice(0,300)}`);
-  return out.data ?? out;
+  if (!res.ok || !out.access_token) throw new Error(`google token: ${res.status} ${JSON.stringify(out).slice(0, 200)}`);
+  _googleToken = { token: out.access_token, exp: now + (out.expires_in || 3600) };
+  return _googleToken.token;
 }
 
 // ---- CallRail: calls + forms per day, split by source (qualifier) + loose total ----
@@ -150,17 +166,23 @@ async function pullCallRail(src) {
   return rows;
 }
 
-// ---- GA4 (Composio): daily x channel-group, plus unsegmented daily totals ----
+// ---- GA4 (Data API v1beta, direct): daily x channel-group ----
 const GA4_METRICS = [["sessions","sessions"],["users","totalUsers"],["new_users","newUsers"],
   ["engaged_sessions","engagedSessions"],["key_events","keyEvents"]];
 async function pullGA4(src) {
-  const data = await composioExec("GOOGLE_ANALYTICS_RUN_REPORT", CA.ga4, {
-    property: `properties/${src.external_id}`,
-    dateRanges: [{ startDate: START, endDate: END }],
-    dimensions: [{ name: "date" }, { name: "sessionDefaultChannelGroup" }],
-    metrics: GA4_METRICS.map(([, api]) => ({ name: api })),
-    limit: 100000,
+  const token = await getGoogleToken();
+  const res = await fetchT(`https://analyticsdata.googleapis.com/v1beta/properties/${src.external_id}:runReport`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      dateRanges: [{ startDate: START, endDate: END }],
+      dimensions: [{ name: "date" }, { name: "sessionDefaultChannelGroup" }],
+      metrics: GA4_METRICS.map(([, api]) => ({ name: api })),
+      limit: 100000,
+    }),
   });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(`ga4 ${src.external_id}: ${res.status} ${JSON.stringify(data.error || data).slice(0, 200)}`);
   // Per-segment rows ONLY (qualifier=channel). Do NOT also write an unsegmented
   // qualifier='' total — the tracker/rollup views sum across rows, so a loose total
   // would double-count. Channel sums are correct for sessions/engaged_sessions/key_events.
@@ -204,35 +226,45 @@ async function pullMeta(src) {
   return rows;
 }
 
-// ---- Pages (Composio Facebook): organic daily insights ----
+// ---- Pages (Graph API, direct): organic daily insights (best-effort) ----
+// Needs a token with pages_read_engagement + read_insights and the page managed by
+// the token owner. Only ~5/18 pages are currently accessible; failures skip quietly.
 const PAGE_METRICS = { page_daily_follows_unique: "followers", page_media_view: "reach",
   page_post_engagements: "engagement", page_video_views: "video_views" };
 async function pullPages(src) {
-  if (!CA.facebook) return [];                              // skip until FB connection configured
-  const data = await composioExec("FACEBOOK_GET_PAGE_INSIGHTS", CA.facebook, {
-    page_id: src.external_id, period: "day", since: START, until: END,
-    metrics: Object.keys(PAGE_METRICS).join(","),
-  }).catch(e => { console.warn(`Pages ${src.slug}: ${e.message}`); return null; });
-  const series = data?.data || data?.insights || [];       // shape validated at probe
-  const rows = [];
-  for (const m of series) {
-    const name = PAGE_METRICS[m.name]; if (!name) continue;
-    for (const v of (m.values || [])) {
-      const date = (v.end_time || "").slice(0, 10); if (!date) continue;
-      if (v.value != null && typeof v.value === "number")
-        rows.push({ metric_name: name, metric_date: date, value: v.value, unit: "int" });
+  if (!META_ACCESS_TOKEN) return [];
+  try {
+    // exchange the user/system token for this page's token
+    const pt = await fetchT(`${META_API}/${src.external_id}?fields=access_token&access_token=${META_ACCESS_TOKEN}`)
+      .then(r => r.json());
+    const pageToken = pt.access_token;
+    if (!pageToken) { console.warn(`Pages ${src.slug}: no page token (not managed / missing scope)`); return []; }
+    const url = `${META_API}/${src.external_id}/insights?metric=${Object.keys(PAGE_METRICS).join(",")}`
+      + `&period=day&since=${START}&until=${END}&access_token=${pageToken}`;
+    const data = await fetchT(url).then(r => r.json());
+    if (data.error) { console.warn(`Pages ${src.slug}: ${data.error.message}`); return []; }
+    const rows = [];
+    for (const m of (data.data || [])) {
+      const name = PAGE_METRICS[m.name]; if (!name) continue;
+      for (const v of (m.values || [])) {
+        const date = (v.end_time || "").slice(0, 10); if (!date) continue;
+        if (v.value != null && typeof v.value === "number")
+          rows.push({ metric_name: name, metric_date: date, value: v.value, unit: "int" });
+      }
     }
-  }
-  return rows;
+    return rows;
+  } catch (e) { console.warn(`Pages ${src.slug}: ${e.message}`); return []; }
 }
 
 // ---- Google Ads Ledger sheet -> metrics_daily (campaign + conversion_action) ----
 async function pullGoogleAdsSheet(cidToSlug) {
-  if (!COMPOSIO_API_KEY) return {};
-  const res = await composioExec("GOOGLESHEETS_BATCH_GET", CA.sheets, {
-    spreadsheet_id: GA_LEDGER_SHEET, ranges: ["Campaigns!A2:H100000", "Conversions!A2:F100000"],
-  });
-  const vr = res.valueRanges || res.response?.data?.valueRanges || [];
+  if (!GOOGLE_SERVICE_ACCOUNT_JSON) return {};
+  const token = await getGoogleToken();
+  const ranges = ["Campaigns!A2:H100000", "Conversions!A2:F100000"].map(r => `ranges=${encodeURIComponent(r)}`).join("&");
+  const res = await fetchT(`https://sheets.googleapis.com/v4/spreadsheets/${GA_LEDGER_SHEET}/values:batchGet?${ranges}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  }).then(r => r.json());
+  const vr = res.valueRanges || [];
   const camp = (vr[0]?.values) || [], conv = (vr[1]?.values) || [];
   const digits = s => String(s || "").replace(/[^0-9]/g, "");
   const inWindow = d => d >= START && d <= END;
