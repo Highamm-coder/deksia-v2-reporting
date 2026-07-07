@@ -72,7 +72,10 @@ async function sb(path, opts = {}) {
     },
   });
   if (!res.ok) throw new Error(`Supabase ${path}: ${res.status} ${await res.text()}`);
-  return res.status === 204 ? null : res.json();
+  // tolerate empty bodies: 204 No Content, or a 200/201 with no JSON (e.g. a void RPC,
+  // or an insert with Prefer: return=minimal). res.json() would throw on those.
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
 }
 
 async function ingest(source, clientSlug, rows) {
