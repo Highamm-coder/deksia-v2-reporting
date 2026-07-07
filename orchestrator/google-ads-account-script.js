@@ -1,61 +1,59 @@
 /**
- * Deksia — SINGLE-ACCOUNT Google Ads export to the shared Ledger Sheet.
- * For client accounts that are NOT under the DEKSIA MCC. Paste into THAT account's
- * own Google Ads Scripts (Tools -> Bulk actions -> Scripts), one per account.
+ * Deksia — SINGLE-ACCOUNT Google Ads → Deksia reporting (direct POST, no spreadsheet).
+ * For a client's Google Ads account that is NOT under the Deksia MCC (we don't manage it).
  *
- * Identical output to the MCC script (same Campaigns/Conversions tabs, same shared
- * Sheet) — it just runs for the one account it's installed in instead of looping an MCC.
- * READ-ONLY behavior: GAQL reads + writes to your Sheet. No mutations, no UrlFetch.
+ * The client (or you, with access) pastes this into THAT account's Google Ads Scripts
+ * (Tools → Bulk actions → Scripts → New script), authorizes it, and schedules it daily.
+ * It reads yesterday's campaign metrics and POSTs them straight into Deksia's reporting
+ * database. Read-only on the ads account; the only external call is the POST to Deksia.
  *
- * Prereqs:
- *   - You can add a script in this account (you manage its ads).
- *   - The Ledger Sheet below is shared (editor) with the Google user that authorizes this script.
+ * Two values are filled in per client:
+ *   CLIENT_SLUG  — which Deksia client this account's data belongs to (baked in below).
+ *   INGEST_TOKEN — Deksia's write token; paste it in before installing (kept out of
+ *                  source on purpose). Ask Deksia for the current value.
  */
-var SHEET_URL = "https://docs.google.com/spreadsheets/d/1cEIfUfd_AFd4r82qt9p9imuo7oaqcJqwgZXAGXRSzhU/edit";
-var CAMP_TAB = "Campaigns";
-var CONV_TAB = "Conversions";
-var CAMP_HEADER = ["date","cid","account","campaign","impressions","clicks","cost","conversions"];
-var CONV_HEADER = ["date","cid","account","campaign","conversion_action","conversions"];
+var CLIENT_SLUG  = "__CLIENT_SLUG__";
+var INGEST_TOKEN = "PASTE_INGEST_TOKEN";
+var INGEST_URL   = "https://ykxauddrsnuwkvimkdhw.supabase.co/functions/v1/ingest-metrics";
 
 function main() {
-  var ss = SpreadsheetApp.openByUrl(SHEET_URL);
-  var camp = tab_(ss, CAMP_TAB, CAMP_HEADER);
-  var conv = tab_(ss, CONV_TAB, CONV_HEADER);
-
   var acct = AdsApp.currentAccount();
-  var cid = acct.getCustomerId(), name = acct.getName();
+  var cid = acct.getCustomerId();
   var day = Utilities.formatDate(new Date(Date.now() - 864e5), acct.getTimeZone(), "yyyy-MM-dd");
+  var rows = [];
 
-  var campRows = [], convRows = [];
-
+  // campaign-level metrics
   var qa = "SELECT campaign.name, metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions " +
            "FROM campaign WHERE segments.date = '" + day + "' AND metrics.impressions > 0";
   var ia = AdsApp.search(qa);
   while (ia.hasNext()) {
-    var r = ia.next(), m = r.metrics || {};
-    campRows.push([day, cid, name, r.campaign.name,
-      Number(m.impressions||0), Number(m.clicks||0), Number(m.costMicros||0)/1e6, Number(m.conversions||0)]);
+    var r = ia.next(), m = r.metrics || {}, campaign = r.campaign.name;
+    rows.push({ metric_name: "impressions", metric_date: day, account_ext_id: cid, entity: campaign, value: Number(m.impressions || 0), unit: "int" });
+    rows.push({ metric_name: "clicks",      metric_date: day, account_ext_id: cid, entity: campaign, value: Number(m.clicks || 0), unit: "int" });
+    rows.push({ metric_name: "spend",       metric_date: day, account_ext_id: cid, entity: campaign, value: Number(m.costMicros || 0) / 1e6, unit: "usd" });
+    rows.push({ metric_name: "conversions", metric_date: day, account_ext_id: cid, entity: campaign, value: Number(m.conversions || 0), unit: "int" });
   }
 
+  // conversions broken out by conversion action
   var qb = "SELECT campaign.name, segments.conversion_action_name, metrics.conversions " +
            "FROM campaign WHERE segments.date = '" + day + "' AND metrics.conversions > 0";
   var ib = AdsApp.search(qb);
   while (ib.hasNext()) {
     var r2 = ib.next();
-    convRows.push([day, cid, name, r2.campaign.name,
-      (r2.segments && r2.segments.conversionActionName) || "(unknown)", Number(r2.metrics.conversions||0)]);
+    rows.push({ metric_name: "conversion_action", metric_date: day, account_ext_id: cid,
+      entity: r2.campaign.name,
+      qualifier: (r2.segments && r2.segments.conversionActionName) || "(unknown)",
+      value: Number(r2.metrics.conversions || 0), unit: "int" });
   }
 
-  append_(camp, campRows);
-  append_(conv, convRows);
-  Logger.log(name + " (" + cid + ") — Campaigns: " + campRows.length + " · Conversions: " + convRows.length);
-}
+  if (!rows.length) { Logger.log(CLIENT_SLUG + " (" + cid + "): no rows for " + day); return; }
 
-function tab_(ss, name, header) {
-  var s = ss.getSheetByName(name) || ss.insertSheet(name);
-  if (s.getLastRow() === 0) s.appendRow(header);
-  return s;
-}
-function append_(sheet, rows) {
-  if (rows.length) sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+  var res = UrlFetchApp.fetch(INGEST_URL, {
+    method: "post",
+    contentType: "application/json",
+    headers: { Authorization: "Bearer " + INGEST_TOKEN },
+    payload: JSON.stringify({ source: "google_ads", client_slug: CLIENT_SLUG, cid: cid, rows: rows }),
+    muteHttpExceptions: true,
+  });
+  Logger.log(CLIENT_SLUG + " (" + cid + ") " + day + " → " + res.getResponseCode() + " " + res.getContentText());
 }

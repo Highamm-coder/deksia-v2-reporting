@@ -1,6 +1,8 @@
 import { getSupabaseServer } from "../../../lib/supabase/server";
 import Header from "../../_components/Header";
+import ScriptBlock from "../../_components/ScriptBlock";
 import { fmtVal, fmtDelta, fmtMonth } from "../../../lib/format";
+import { generateGoogleAdsScript } from "../../../lib/googleAdsScript";
 
 export const dynamic = "force-dynamic";
 const num = (v, d = 0) => (v == null ? "—" : Number(v).toLocaleString(undefined, { maximumFractionDigits: d }));
@@ -29,6 +31,7 @@ export default async function ClientDetail({ params }) {
   ]);
   if (!client) return (<><Header /><main><p>Client not found: {slug}</p></main></>);
   const sources = (client.client_sources || []).sort((a, b) => a.source.localeCompare(b.source) || String(a.external_id).localeCompare(String(b.external_id)));
+  const gAdsScript = generateGoogleAdsScript(client.slug, client.name);
 
   // group performance rows by source, ordered
   const rows = report || [];
@@ -144,7 +147,17 @@ export default async function ClientDetail({ params }) {
             })}
           </tbody>
         </table>
-        <p className="muted" style={{ marginTop: 14 }}>Edit sources & goals — coming in P2/P3.</p>
+        <h2>Google Ads — account we don&apos;t manage</h2>
+        <p className="muted" style={{ margin: "0 0 8px", fontSize: 13 }}>
+          For a Google Ads account not under the Deksia MCC, generate this client-specific script and
+          have whoever manages that account paste it into <strong>Google Ads → Tools → Bulk actions →
+          Scripts → New script</strong>, then Authorize → Run once → schedule Daily. It reads yesterday&apos;s
+          campaign metrics and sends them straight here (no spreadsheet). Replace{" "}
+          <code>PASTE_INGEST_TOKEN</code> with the current ingest token before installing.
+        </p>
+        <ScriptBlock code={gAdsScript} filename={`google-ads-${client.slug}.js`} />
+
+        <p className="muted" style={{ marginTop: 18 }}>Edit sources & goals — coming in P2/P3.</p>
       </main>
     </>
   );
