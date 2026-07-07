@@ -1,58 +1,71 @@
 /**
- * Deksia MCC — daily metrics POST to Supabase ingest-metrics.
- * Paste into the DEKSIA MCC (929-098-5791) Google Ads Scripts, schedule daily.
- * Replaces the old "write to a Sheet" behavior: now POSTs JSON straight into
- * public.metrics_daily via the ingest-metrics edge function (idempotent upsert).
+ * Deksia MCC — daily direct POST to Deksia reporting (no spreadsheet).
+ * Paste into the DEKSIA MCC (929-098-5791) Google Ads Scripts as the ONLY file.
  *
- * Set the two constants below. INGEST_TOKEN is the Vault-stored bearer token.
- * The function resolves each account by its CID (digits) against client_sources,
- * so seed a google_ads client_source row per client with external_id = the CID.
+ * If you get "script has multiple main functions": your Scripts project has more than
+ * one file (e.g. an old "Code.gs" and a "POST API.gs"), each with a main(). Delete the
+ * extra file(s) so this is the single file in the project, then paste this in.
+ *
+ * Loops every account under the MCC, reads yesterday's campaign metrics, and POSTs them
+ * straight into metrics_daily via ingest-metrics (idempotent). Read-only on the ads
+ * accounts; the only external call is the POST to Deksia. Resolves each client by its
+ * account CID against client_sources, so seed a google_ads client_source per client.
+ *
+ * Before running: set INGEST_TOKEN below to the current Deksia ingest token.
  */
-var INGEST_URL = "https://ykxauddrsnuwkvimkdhw.supabase.co/functions/v1/ingest-metrics";
 var INGEST_TOKEN = "PASTE_INGEST_TOKEN";
+var INGEST_URL   = "https://ykxauddrsnuwkvimkdhw.supabase.co/functions/v1/ingest-metrics";
 
 function main() {
-  var day = dateString_(-1); // yesterday in account timezone
   var accounts = AdsManagerApp.accounts().get();
   while (accounts.hasNext()) {
     var acct = accounts.next();
     AdsManagerApp.select(acct);
-    var cid = acct.getCustomerId(); // e.g. "123-456-7890"
-    var stats = AdWordsApp ? null : null;
-    var sel = AdsApp.report(
-      "SELECT Impressions, Clicks, Ctr, Cost, Conversions " +
-      "FROM ACCOUNT_PERFORMANCE_REPORT DURING " + day.replace(/-/g, "") + "," + day.replace(/-/g, "")
-    );
-    var rows = sel.rows();
-    var imp = 0, clk = 0, cost = 0, conv = 0;
-    while (rows.hasNext()) {
-      var r = rows.next();
-      imp += Number(r["Impressions"]); clk += Number(r["Clicks"]);
-      cost += Number(String(r["Cost"]).replace(/[^0-9.]/g, "")); conv += Number(r["Conversions"]);
+    try {
+      postAccount_(acct);
+    } catch (e) {
+      Logger.log(acct.getCustomerId() + " ERROR: " + e);
     }
-    var metricRows = [
-      { metric_name: "impressions", metric_date: day, value: imp, unit: "int" },
-      { metric_name: "clicks",      metric_date: day, value: clk, unit: "int" },
-      { metric_name: "spend",       metric_date: day, value: cost, unit: "usd" },
-      { metric_name: "conversions", metric_date: day, value: conv, unit: "int" }
-    ];
-    post_({ source: "google_ads", cid: cid, rows: metricRows });
   }
 }
 
-function post_(body) {
-  var resp = UrlFetchApp.fetch(INGEST_URL, {
+function postAccount_(acct) {
+  var cid = acct.getCustomerId();
+  var day = Utilities.formatDate(new Date(Date.now() - 864e5), acct.getTimeZone(), "yyyy-MM-dd");
+  var rows = [];
+
+  // campaign-level metrics
+  var qa = "SELECT campaign.name, metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions " +
+           "FROM campaign WHERE segments.date = '" + day + "' AND metrics.impressions > 0";
+  var ia = AdsApp.search(qa);
+  while (ia.hasNext()) {
+    var r = ia.next(), m = r.metrics || {}, campaign = r.campaign.name;
+    rows.push({ metric_name: "impressions", metric_date: day, account_ext_id: cid, entity: campaign, value: Number(m.impressions || 0), unit: "int" });
+    rows.push({ metric_name: "clicks",      metric_date: day, account_ext_id: cid, entity: campaign, value: Number(m.clicks || 0), unit: "int" });
+    rows.push({ metric_name: "spend",       metric_date: day, account_ext_id: cid, entity: campaign, value: Number(m.costMicros || 0) / 1e6, unit: "usd" });
+    rows.push({ metric_name: "conversions", metric_date: day, account_ext_id: cid, entity: campaign, value: Number(m.conversions || 0), unit: "int" });
+  }
+
+  // conversions broken out by conversion action
+  var qb = "SELECT campaign.name, segments.conversion_action_name, metrics.conversions " +
+           "FROM campaign WHERE segments.date = '" + day + "' AND metrics.conversions > 0";
+  var ib = AdsApp.search(qb);
+  while (ib.hasNext()) {
+    var r2 = ib.next();
+    rows.push({ metric_name: "conversion_action", metric_date: day, account_ext_id: cid,
+      entity: r2.campaign.name,
+      qualifier: (r2.segments && r2.segments.conversionActionName) || "(unknown)",
+      value: Number(r2.metrics.conversions || 0), unit: "int" });
+  }
+
+  if (!rows.length) { Logger.log(cid + ": no rows for " + day); return; }
+
+  var res = UrlFetchApp.fetch(INGEST_URL, {
     method: "post",
     contentType: "application/json",
     headers: { Authorization: "Bearer " + INGEST_TOKEN },
-    payload: JSON.stringify(body),
-    muteHttpExceptions: true
+    payload: JSON.stringify({ source: "google_ads", cid: cid, rows: rows }),
+    muteHttpExceptions: true,
   });
-  Logger.log(body.cid + " -> " + resp.getResponseCode() + " " + resp.getContentText());
-}
-
-function dateString_(offsetDays) {
-  var tz = AdsApp.currentAccount().getTimeZone();
-  var d = new Date(); d.setDate(d.getDate() + offsetDays);
-  return Utilities.formatDate(d, tz, "yyyy-MM-dd");
+  Logger.log(cid + " " + day + " -> " + res.getResponseCode() + " (" + rows.length + " rows)");
 }
