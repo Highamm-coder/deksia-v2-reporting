@@ -14,7 +14,7 @@
 //   GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET / GOOGLE_OAUTH_REFRESH_TOKEN
 //                           Google OAuth as the user that already has access to all
 //                           GA4 properties + the Ledger sheet (no per-account grants).
-//                           Powers GA4 Data API + Sheets API; without them those skip.
+//                           Powers the GA4 Data API pull; without them GA4 skips.
 //                           Mint the refresh token once via orchestrator/get-refresh-token.mjs.
 //   CALLRAIL_API_KEY        CallRail v3 REST (calls/forms)
 //   META_ACCESS_TOKEN       Meta Graph API — long-lived system-user token (ad-account
@@ -32,7 +32,6 @@ for (const [k, v] of Object.entries({ SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, I
   if (!v) { console.error(`Missing required env ${k}`); process.exit(1); }
 }
 
-const GA_LEDGER_SHEET = "1cEIfUfd_AFd4r82qt9p9imuo7oaqcJqwgZXAGXRSzhU";
 const META_API = "https://graph.facebook.com/v21.0";
 
 function etDate(offsetDays = 0) {
@@ -100,7 +99,7 @@ function toNumber(s) {
 }
 const ymd = (yyyymmdd) => `${yyyymmdd.slice(0,4)}-${yyyymmdd.slice(4,6)}-${yyyymmdd.slice(6,8)}`;
 
-// ---- Google OAuth (GA4 Data API + Sheets API) via refresh token, no deps ----
+// ---- Google OAuth (GA4 Data API) via refresh token, no deps ----
 // Authenticates AS the user that already has access to every GA4 property + the
 // Ledger sheet — so there are no per-account service-account grants to maintain.
 let _googleToken = null; // { token, exp } — cached for the run
@@ -257,51 +256,15 @@ async function pullPages(src) {
   } catch (e) { console.warn(`Pages ${src.slug}: ${e.message}`); return []; }
 }
 
-// ---- Google Ads Ledger sheet -> metrics_daily (campaign + conversion_action) ----
-async function pullGoogleAdsSheet(cidToSlug) {
-  if (!GOOGLE_READY) return {};
-  const token = await getGoogleToken();
-  const ranges = ["Campaigns!A2:H100000", "Conversions!A2:F100000"].map(r => `ranges=${encodeURIComponent(r)}`).join("&");
-  const res = await fetchT(`https://sheets.googleapis.com/v4/spreadsheets/${GA_LEDGER_SHEET}/values:batchGet?${ranges}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  }).then(r => r.json());
-  const vr = res.valueRanges || [];
-  const camp = (vr[0]?.values) || [], conv = (vr[1]?.values) || [];
-  const digits = s => String(s || "").replace(/[^0-9]/g, "");
-  const inWindow = d => d >= START && d <= END;
-  // dedup latest by key (sheet appends; last write wins)
-  const campRows = {}, convRows = {};
-  for (const r of camp) { const [date,cid,acct,campaign,imp,clk,cost,convs] = r;
-    if (!date || !inWindow(date) || !cidToSlug[digits(cid)]) continue;
-    campRows[`${cid}|${campaign}|${date}`] = { date, cid, campaign, imp, clk, cost, convs }; }
-  for (const r of conv) { const [date,cid,acct,campaign,action,convs] = r;
-    if (!date || !inWindow(date) || !cidToSlug[digits(cid)]) continue;
-    convRows[`${cid}|${campaign}|${action}|${date}`] = { date, cid, campaign, action, convs }; }
-  const bySlug = {}; // slug -> rows
-  const add = (slug, row) => { (bySlug[slug] = bySlug[slug] || []).push(row); };
-  for (const v of Object.values(campRows)) { const slug = cidToSlug[digits(v.cid)];
-    const base = { metric_date: v.date, account_ext_id: digits(v.cid), entity: v.campaign || "" };
-    add(slug, { ...base, metric_name: "impressions", value: toNumber(v.imp), unit: "int" });
-    add(slug, { ...base, metric_name: "clicks",      value: toNumber(v.clk), unit: "int" });
-    add(slug, { ...base, metric_name: "spend",       value: toNumber(v.cost), unit: "usd" });
-    add(slug, { ...base, metric_name: "conversions", value: toNumber(v.convs), unit: "int" }); }
-  for (const v of Object.values(convRows)) { const slug = cidToSlug[digits(v.cid)];
-    add(slug, { metric_date: v.date, account_ext_id: digits(v.cid), entity: v.campaign || "",
-                qualifier: v.action || "", metric_name: "conversion_action", value: toNumber(v.convs), unit: "int" }); }
-  const tally = {};
-  for (const [slug, rows] of Object.entries(bySlug)) tally[slug] = await ingest("google_ads", slug, rows.filter(r => r.value != null));
-  return tally;
-}
+// Google Ads is PUSH-based: the Google Ads Scripts (MCC or per-account) POST straight
+// to ingest-metrics, so there's nothing to pull here and no Ledger sheet to read/fill.
+// See orchestrator/google-ads-mcc-script.js and google-ads-account-script.js.
 
 async function main() {
   console.log(`Orchestrator run ${START}..${END} (America/New_York)`);
   const sources = await sb(
     "client_sources?select=source,external_id,params,active,clients!inner(slug,status)&active=eq.true&clients.status=eq.active"
   );
-  const cidToSlug = {};
-  for (const s of sources) if (s.source === "google_ads")
-    cidToSlug[String(s.external_id).replace(/[^0-9]/g, "")] = s.clients.slug;
-
   const PULLERS = { callrail: pullCallRail, ga4: pullGA4, meta: pullMeta, pages: pullPages };
   const tally = {}, health = {}; // health[source] = {ok, fail}
   const mark = (source, ok) => { const h = health[source] = health[source] || { ok: 0, fail: 0 }; ok ? h.ok++ : h.fail++; };
@@ -316,10 +279,7 @@ async function main() {
       mark(src.source, true);
     } catch (e) { console.error(`  ! ${src.slug}/${src.source}: ${e.message}`); mark(src.source, false); }
   });
-  try { const g = await pullGoogleAdsSheet(cidToSlug);
-    tally.google_ads = Object.values(g).reduce((a, b) => a + b, 0);
-    mark("google_ads", true);
-  } catch (e) { console.error(`  ! google_ads sheet: ${e.message}`); mark("google_ads", false); }
+  // (google_ads arrives via the Google Ads Scripts POSTing directly — not pulled here)
 
   console.log("Ingested rows:", JSON.stringify(tally));
   console.log("Source health:", JSON.stringify(health));
