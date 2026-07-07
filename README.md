@@ -48,19 +48,29 @@ tab of the Reporting workbook and are documented in `.claude/skills/client-repor
 
 1. **Prereqs:** Node 18+, Claude Code, and access to the Deksia Google / Meta / CallRail / Supabase accounts.
 2. **Clone** this repo.
-3. **CallRail MCP server** (`callrail-mcp-server/`):
-   ```bash
-   cd callrail-mcp-server
-   npm install && npm run build
-   cp .env.example .env          # then set CALLRAIL_API_KEY (CallRail → Account Settings → API Keys)
-   # run it (HTTP, survives the session):
-   nohup env TRANSPORT=http PORT=3000 node dist/index.js > callrail-mcp.out.log 2>&1 & disown
-   # register with Claude Code:
-   claude mcp add --transport http callrail http://localhost:3000/mcp --scope user
-   ```
-   Full detail (incl. stdio option) in `callrail-mcp-server/CONNECT.md`.
+3. **Local MCP servers** — declared in [`.mcp.json`](.mcp.json) (the project MCP wrapper); Claude Code
+   prompts to enable them when you open the project. Each needs its backing service running/authed:
+   - **CallRail** (`callrail-mcp-server/`, HTTP on `:3000`):
+     ```bash
+     cd callrail-mcp-server && npm install && npm run build
+     cp .env.example .env          # set CALLRAIL_API_KEY (CallRail → Account Settings → API Keys)
+     nohup env TRANSPORT=http PORT=3000 node dist/index.js > callrail-mcp.out.log 2>&1 & disown
+     ```
+     `.mcp.json` points `callrail` at `http://localhost:3000/mcp`. Detail in `callrail-mcp-server/CONNECT.md`.
+   - **Google Analytics** (Google's official [`analytics-mcp`](https://github.com/googleanalytics/google-analytics-mcp), stdio via pipx):
+     ```bash
+     brew install pipx && pipx ensurepath           # or: python3 -m pip install --user pipx
+     # auth via Application Default Credentials (read-only Analytics scope):
+     gcloud auth application-default login \
+       --scopes=https://www.googleapis.com/auth/analytics.readonly,https://www.googleapis.com/auth/cloud-platform
+     export GOOGLE_PROJECT_ID=<gcp-project-id>       # a GCP project with the Analytics Data API enabled
+     ```
+     `.mcp.json` launches it as `pipx run analytics-mcp`. Tools: `get_account_summaries`, `get_property_details`,
+     `run_report`, `run_realtime_report`, `run_funnel_report`, `get_custom_dimensions_and_metrics`,
+     `list_google_ads_links`. Run **`get_account_summaries`** once to map each client's GA4 property ID into
+     `_Reporting Config` / `client_sources` (closes the GA4 mapping gap on the coverage roadmap).
 4. **Connect the cloud connectors** in Claude Code:
-   - **Composio** toolkits (OAuth): `googlesheets`, `google_analytics`, `facebook`, `instagram`, `metaads`
+   - **Composio** toolkits (OAuth): `googlesheets`, `google_analytics` (Composio GA — fallback to the GA MCP above), `facebook`, `instagram`, `metaads`
    - **Meta Ads MCP** and **Supabase MCP**
 5. **Supabase schema:** run the SQL in `supabase/migrations/` against the project (Supabase SQL editor,
    or `supabase db push` with the CLI). Use the existing `ykxauddrsnuwkvimkdhw` project, or create a new

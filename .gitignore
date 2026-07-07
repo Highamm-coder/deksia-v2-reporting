@@ -19,3 +19,6 @@
 
 # Archives / build artifacts
 *.zip
+
+# local preview config (machine-specific absolute paths)
+.claude/launch.json

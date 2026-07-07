@@ -1,0 +1,36 @@
+name: deksia-daily-sync
+
+# Fully headless daily refresh: pull each client's metrics direct from the vendor APIs
+# (GA4 Data API, Meta Graph, CallRail v3, Google Sheets Ledger) -> ingest-metrics ->
+# run the SMART goal tracker. No Claude session or desktop app required. Idempotent.
+# 11:00 UTC ~ 07:00 America/New_York — yesterday's data is fully closed by then.
+on:
+  schedule:
+    - cron: "0 11 * * *"
+  workflow_dispatch:
+    inputs:
+      run_date:
+        description: "Override date (YYYY-MM-DD, America/New_York). Blank = yesterday."
+        required: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      # run.mjs uses only Node built-ins (node:crypto + fetch) — no install step needed.
+      - name: Run daily sync
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
+          GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+          GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+          GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+          CALLRAIL_API_KEY: ${{ secrets.CALLRAIL_API_KEY }}
+          RUN_DATE: ${{ github.event.inputs.run_date }}
+        run: node orchestrator/run.mjs
