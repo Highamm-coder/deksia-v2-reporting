@@ -245,11 +245,15 @@ async function pullMeta(src) {
 
   // 1) counts at ad level
   const ads = await metaInsights(src.external_id,
-    "level=ad&fields=campaign_name,adset_name,ad_name,impressions,clicks,spend,actions");
+    "level=ad&fields=campaign_name,adset_name,ad_name,ad_id,impressions,clicks,spend,actions");
+  const seen = new Set(); // distinct ads can share a display name — disambiguate with Meta's ad_id
   for (const r of ads) {
     const date = r.date_start;
     const entity = r.campaign_name || "";
-    const qualifier = `${r.adset_name || ""} › ${r.ad_name || ""}`;
+    let qualifier = `${r.adset_name || ""} › ${r.ad_name || ""}`;
+    const key = `${date}|${entity}|${qualifier}`;
+    if (seen.has(key)) qualifier += ` [${r.ad_id}]`;
+    seen.add(key);
     const lead = (r.actions || []).find(a => a.action_type === "lead");
     const link = (r.actions || []).find(a => a.action_type === "link_click");
     push("impressions", toNumber(r.impressions), "int", { date, entity, qualifier });
