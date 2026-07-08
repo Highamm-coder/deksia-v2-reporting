@@ -12,6 +12,12 @@ on:
       run_date:
         description: "Override date (YYYY-MM-DD, America/New_York). Blank = yesterday."
         required: false
+      run_start:
+        description: "Backfill window start (YYYY-MM-DD). Use with run_end; overrides run_date."
+        required: false
+      run_end:
+        description: "Backfill window end (YYYY-MM-DD)."
+        required: false
 
 jobs:
   sync:
@@ -33,4 +39,6 @@ jobs:
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
           CALLRAIL_API_KEY: ${{ secrets.CALLRAIL_API_KEY }}
           RUN_DATE: ${{ github.event.inputs.run_date }}
+          RUN_START: ${{ github.event.inputs.run_start }}
+          RUN_END: ${{ github.event.inputs.run_end }}
         run: node orchestrator/run.mjs

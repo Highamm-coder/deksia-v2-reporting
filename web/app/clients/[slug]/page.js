@@ -10,13 +10,14 @@ const num = (v, d = 0) => (v == null ? "—" : Number(v).toLocaleString(undefine
 const SRC_LABEL = { google_ads: "Google Ads", meta: "Meta", ga4: "GA4", callrail: "CallRail", pages: "Facebook Pages", email: "Email", seo: "SEO", other: "Other" };
 const SRC_ORDER = ["google_ads", "meta", "ga4", "callrail", "pages", "email", "seo", "other"];
 // Headline KPIs to lift to the top when present: [source, metric, label].
+// NOTE: no GA4 users KPI — unique-user counts are non-additive across channels/days;
+// a summed number is one GA4 itself never reports. Sessions/key events sum faithfully.
 const HEADLINE = [
   ["meta", "spend", "Meta Spend"],
   ["google_ads", "spend", "Ads Spend"],
   ["meta", "leads", "Meta Leads"],
   ["callrail", "mqls", "CallRail MQLs"],
   ["ga4", "sessions", "GA4 Sessions"],
-  ["ga4", "users", "GA4 Users"],
 ];
 
 export default async function ClientDetail({ params }) {
