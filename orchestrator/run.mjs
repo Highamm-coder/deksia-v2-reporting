@@ -214,7 +214,9 @@ async function pullMeta(src) {
     const date = day.date_start;
     const lead = (day.actions || []).find(a => a.action_type === "lead");
     const link = (day.actions || []).find(a => a.action_type === "link_click");
-    const push = (name, val, unit) => { if (val != null) rows.push({ metric_name: name, metric_date: date, value: val, unit }); };
+    // account_ext_id is REQUIRED on every row: a client with 2+ Meta ad accounts would
+    // otherwise upsert both onto the same PK (account_ext_id='') — last write wins.
+    const push = (name, val, unit) => { if (val != null) rows.push({ metric_name: name, metric_date: date, value: val, unit, account_ext_id: src.external_id }); };
     push("impressions", toNumber(day.impressions), "int");
     push("clicks",      toNumber(day.clicks), "int");
     push("ctr",         toNumber(day.ctr), "pct");
@@ -249,7 +251,8 @@ async function pullPages(src) {
       for (const v of (m.values || [])) {
         const date = (v.end_time || "").slice(0, 10); if (!date) continue;
         if (v.value != null && typeof v.value === "number")
-          rows.push({ metric_name: name, metric_date: date, value: v.value, unit: "int" });
+          // account_ext_id=page id — same PK-collision guard as pullMeta for multi-page clients
+          rows.push({ metric_name: name, metric_date: date, value: v.value, unit: "int", account_ext_id: src.external_id });
       }
     }
     return rows;
