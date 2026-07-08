@@ -204,13 +204,20 @@ async function pullGA4(src) {
 async function pullMeta(src) {
   if (!META_ACCESS_TOKEN) return [];                       // skip until token configured
   const fields = "impressions,clicks,ctr,cpc,spend,actions";
-  const url = `${META_API}/act_${src.external_id}/insights?level=account&time_increment=1`
-            + `&time_range=${encodeURIComponent(JSON.stringify({ since: START, until: END }))}`
-            + `&fields=${fields}&access_token=${META_ACCESS_TOKEN}`;
-  const d = await fetchT(url).then(r => r.json());
-  if (d.error) throw new Error(`meta ${src.external_id}: ${d.error.message}`);
+  let url = `${META_API}/act_${src.external_id}/insights?level=account&time_increment=1`
+          + `&time_range=${encodeURIComponent(JSON.stringify({ since: START, until: END }))}`
+          + `&fields=${fields}&limit=500&access_token=${META_ACCESS_TOKEN}`;
+  // Follow Graph API pagination — a multi-week backfill window spans multiple pages;
+  // reading only the first page silently truncates the tail of the window.
+  const days = [];
+  for (let page = 0; url && page < 20; page++) {
+    const d = await fetchT(url).then(r => r.json());
+    if (d.error) throw new Error(`meta ${src.external_id}: ${d.error.message}`);
+    days.push(...(d.data || []));
+    url = d.paging?.next || null;
+  }
   const rows = [];
-  for (const day of (d.data || [])) {
+  for (const day of days) {
     const date = day.date_start;
     const lead = (day.actions || []).find(a => a.action_type === "lead");
     const link = (day.actions || []).find(a => a.action_type === "link_click");
