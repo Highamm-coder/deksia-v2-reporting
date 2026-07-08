@@ -24,22 +24,31 @@ export default async function ClientDetail({ params }) {
   const slug = decodeURIComponent(params.slug);
   const supabase = getSupabaseServer();
   // single round trip: embed client_sources via FK, parallel with views
-  const [{ data: client }, { data: goals }, { data: pipeline }, { data: report }] = await Promise.all([
+  const [{ data: client }, { data: goals }, { data: pipeline }, { data: report }, { data: detail }] = await Promise.all([
     supabase.from("clients").select("*, client_sources(*)").eq("slug", slug).maybeSingle(),
     supabase.from("v_goal_scoreboard").select("*").eq("slug", slug).order("metric_name"),
     supabase.from("v_pipeline_health").select("*").eq("slug", slug).order("source"),
     supabase.from("v_client_report").select("*").eq("slug", slug),
+    supabase.from("v_client_report_detail").select("*").eq("slug", slug),
   ]);
   if (!client) return (<><Header /><main><p>Client not found: {slug}</p></main></>);
   const sources = (client.client_sources || []).sort((a, b) => a.source.localeCompare(b.source) || String(a.external_id).localeCompare(String(b.external_id)));
   const gAdsScript = generateGoogleAdsScript(client.slug, client.name);
 
-  // group performance rows by source, ordered
+  // KPI strip stays client-level (from the consolidated view)
   const rows = report || [];
   const bySource = {};
   rows.forEach((r) => { (bySource[r.source] = bySource[r.source] || []).push(r); });
-  const perfSources = SRC_ORDER.filter((s) => bySource[s]);
   const curMonth = rows.map((r) => r.cur_month).sort().at(-1);
+
+  // tables render at per-account grain (multi-brand clients split out)
+  const byAcct = {}; // source -> account_ext_id -> { label, brand, rows[] }
+  (detail || []).forEach((r) => {
+    const s = (byAcct[r.source] = byAcct[r.source] || {});
+    const a = (s[r.account_ext_id] = s[r.account_ext_id] || { label: r.account_label, brand: r.brand, rows: [] });
+    a.rows.push(r);
+  });
+  const perfSources = SRC_ORDER.filter((s) => byAcct[s]);
 
   // headline KPI picks that actually have data
   const kpis = HEADLINE
@@ -73,34 +82,42 @@ export default async function ClientDetail({ params }) {
                 })}
               </div>
             )}
-            {perfSources.map((src) => (
-              <div key={src} style={{ marginTop: 14 }}>
-                <p className="srcgroup">{SRC_LABEL[src] || src}</p>
-                <table>
-                  <thead><tr>
-                    <th>Metric</th>
-                    <th className="num">{fmtMonth(bySource[src][0].cur_month)}</th>
-                    <th className="num">Prev</th>
-                    <th className="num">MoM</th>
-                    <th className="num">Days</th>
-                  </tr></thead>
-                  <tbody>
-                    {bySource[src].sort((a, b) => a.metric_name.localeCompare(b.metric_name)).map((r) => {
-                      const d = fmtDelta(r.pct_change, r.direction);
-                      return (
-                        <tr key={r.metric_name}>
-                          <td title={r.description || ""}>{r.metric_name.replace(/_/g, " ")}</td>
-                          <td className="num">{fmtVal(r.cur_value, r.unit)}</td>
-                          <td className="num muted">{r.prev_value == null ? "—" : fmtVal(r.prev_value, r.unit)}</td>
-                          <td className={`num delta ${d.cls}`}>{d.text}</td>
-                          <td className="num muted">{r.cur_days}{r.prev_days ? ` / ${r.prev_days}` : ""}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            ))}
+            {perfSources.map((src) => {
+              const accounts = Object.entries(byAcct[src])
+                .sort(([, a], [, b]) => String(a.brand || a.label || "").localeCompare(String(b.brand || b.label || "")));
+              const multi = accounts.length > 1;
+              return accounts.map(([acctId, acct]) => (
+                <div key={`${src}|${acctId}`} style={{ marginTop: 14 }}>
+                  <p className="srcgroup">
+                    {SRC_LABEL[src] || src}
+                    {multi && <span style={{ color: "var(--txt)" }}> — {acct.label || acctId}{acct.brand ? ` (${acct.brand})` : ""}</span>}
+                  </p>
+                  <table>
+                    <thead><tr>
+                      <th>Metric</th>
+                      <th className="num">{fmtMonth(acct.rows[0].cur_month)}</th>
+                      <th className="num">Prev</th>
+                      <th className="num">MoM</th>
+                      <th className="num">Days</th>
+                    </tr></thead>
+                    <tbody>
+                      {acct.rows.sort((a, b) => a.metric_name.localeCompare(b.metric_name)).map((r) => {
+                        const d = fmtDelta(r.pct_change, r.direction);
+                        return (
+                          <tr key={r.metric_name}>
+                            <td title={r.description || ""}>{r.metric_name.replace(/_/g, " ")}</td>
+                            <td className="num">{fmtVal(r.cur_value, r.unit)}</td>
+                            <td className="num muted">{r.prev_value == null ? "—" : fmtVal(r.prev_value, r.unit)}</td>
+                            <td className={`num delta ${d.cls}`}>{d.text}</td>
+                            <td className="num muted">{r.cur_days}{r.prev_days ? ` / ${r.prev_days}` : ""}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ));
+            })}
             <p className="muted" style={{ fontSize: 11, marginTop: 6 }}>
               Values are agg-aware (counts summed, rates averaged). "Days" = data days in current / prior month —
               partial months compare unequal spans.
