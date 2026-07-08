@@ -23,15 +23,15 @@ function main() {
   var day = Utilities.formatDate(new Date(Date.now() - 864e5), acct.getTimeZone(), "yyyy-MM-dd");
   var rows = [];
 
-  var qa = "SELECT campaign.name, metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions " +
-           "FROM campaign WHERE segments.date = '" + day + "' AND metrics.impressions > 0";
+  var qa = "SELECT campaign.name, ad_group.name, metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions " +
+           "FROM ad_group WHERE segments.date = '" + day + "' AND metrics.impressions > 0";
   var ia = AdsApp.search(qa);
   while (ia.hasNext()) {
-    var r = ia.next(), m = r.metrics || {}, campaign = r.campaign.name;
-    rows.push({ metric_name: "impressions", metric_date: day, account_ext_id: cid, entity: campaign, value: Number(m.impressions || 0), unit: "int" });
-    rows.push({ metric_name: "clicks",      metric_date: day, account_ext_id: cid, entity: campaign, value: Number(m.clicks || 0), unit: "int" });
-    rows.push({ metric_name: "spend",       metric_date: day, account_ext_id: cid, entity: campaign, value: Number(m.costMicros || 0) / 1e6, unit: "usd" });
-    rows.push({ metric_name: "conversions", metric_date: day, account_ext_id: cid, entity: campaign, value: Number(m.conversions || 0), unit: "int" });
+    var r = ia.next(), m = r.metrics || {}, campaign = r.campaign.name, adGroup = (r.adGroup && r.adGroup.name) || "";
+    rows.push({ metric_name: "impressions", metric_date: day, account_ext_id: cid, entity: campaign, qualifier: adGroup, value: Number(m.impressions || 0), unit: "int" });
+    rows.push({ metric_name: "clicks",      metric_date: day, account_ext_id: cid, entity: campaign, qualifier: adGroup, value: Number(m.clicks || 0), unit: "int" });
+    rows.push({ metric_name: "spend",       metric_date: day, account_ext_id: cid, entity: campaign, qualifier: adGroup, value: Number(m.costMicros || 0) / 1e6, unit: "usd" });
+    rows.push({ metric_name: "conversions", metric_date: day, account_ext_id: cid, entity: campaign, qualifier: adGroup, value: Number(m.conversions || 0), unit: "int" });
   }
 
   var qb = "SELECT campaign.name, segments.conversion_action_name, metrics.conversions " +

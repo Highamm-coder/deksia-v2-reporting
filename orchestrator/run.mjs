@@ -176,61 +176,86 @@ async function pullGA4(src) {
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       dateRanges: [{ startDate: START, endDate: END }],
-      dimensions: [{ name: "date" }, { name: "sessionDefaultChannelGroup" }],
+      // finest useful grain the Data API reports without BigQuery export:
+      // day × channel group × source/medium. Rows partition (don't overlap), so they
+      // still sum exactly to GA4's own channel/property totals.
+      dimensions: [{ name: "date" }, { name: "sessionDefaultChannelGroup" }, { name: "sessionSourceMedium" }],
       metrics: GA4_METRICS.map(([, api]) => ({ name: api })),
       limit: 100000,
     }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(`ga4 ${src.external_id}: ${res.status} ${JSON.stringify(data.error || data).slice(0, 200)}`);
-  // Per-segment rows ONLY (qualifier=channel). Do NOT also write an unsegmented
-  // qualifier='' total — the tracker/rollup views sum across rows, so a loose total
-  // would double-count. Channel sums are correct for sessions/engaged_sessions/key_events.
-  // NOTE: users/new_users summed across channels slightly overcount unique users; no active
-  // goal uses them today — add a dedicated unsegmented total if such a goal is created.
+  // Per-segment rows ONLY (qualifier="channel | source/medium"). Never also write an
+  // unsegmented qualifier='' total — the tracker/rollup views sum across rows, so a
+  // loose total would double-count.
+  // NOTE: users/new_users are non-additive across segments — excluded from reporting
+  // views (0009); the raw per-segment rows here are exactly what GA4 reports.
   const rows = [];
   for (const r of (data.rows || [])) {
     const day = ymd(r.dimensionValues[0].value);
     const channel = r.dimensionValues[1].value;
+    const sourceMedium = r.dimensionValues[2].value;
     r.metricValues.forEach((mv, i) => {
       rows.push({ metric_name: GA4_METRICS[i][0], metric_date: day, value: Number(mv.value || 0), unit: "int",
-                  account_ext_id: src.external_id, entity: src.params?.brand || "", qualifier: channel });
+                  account_ext_id: src.external_id, entity: src.params?.brand || "",
+                  qualifier: `${channel} | ${sourceMedium}` });
     });
   }
   return rows;
 }
 
-// ---- Meta (Graph API): daily ad-account insights ----
-async function pullMeta(src) {
-  if (!META_ACCESS_TOKEN) return [];                       // skip until token configured
-  const fields = "impressions,clicks,ctr,cpc,spend,actions";
-  let url = `${META_API}/act_${src.external_id}/insights?level=account&time_increment=1`
+// ---- Meta (Graph API): daily insights at the API's finest useful grain ----
+// Counts at AD level (entity=campaign, qualifier="adset › ad") — the deepest grain
+// the insights API reports; ad rows sum exactly to Meta's own account totals.
+// Rates (ctr/cpc) at ACCOUNT level as Meta computes them — an averaged ad-level rate
+// would be a number Meta never shows.
+// account_ext_id is REQUIRED on every row: a client with 2+ Meta ad accounts would
+// otherwise upsert both onto the same PK — last write wins.
+async function metaInsights(acct, params) {
+  let url = `${META_API}/act_${acct}/insights?time_increment=1`
           + `&time_range=${encodeURIComponent(JSON.stringify({ since: START, until: END }))}`
-          + `&fields=${fields}&limit=500&access_token=${META_ACCESS_TOKEN}`;
-  // Follow Graph API pagination — a multi-week backfill window spans multiple pages;
-  // reading only the first page silently truncates the tail of the window.
-  const days = [];
-  for (let page = 0; url && page < 20; page++) {
+          + `&${params}&limit=500&access_token=${META_ACCESS_TOKEN}`;
+  // Follow pagination — long windows/many ads span pages; page 1 alone truncates.
+  const out = [];
+  for (let page = 0; url && page < 50; page++) {
     const d = await fetchT(url).then(r => r.json());
-    if (d.error) throw new Error(`meta ${src.external_id}: ${d.error.message}`);
-    days.push(...(d.data || []));
+    if (d.error) throw new Error(`meta ${acct}: ${d.error.message}`);
+    out.push(...(d.data || []));
     url = d.paging?.next || null;
   }
+  return out;
+}
+
+async function pullMeta(src) {
+  if (!META_ACCESS_TOKEN) return [];                       // skip until token configured
   const rows = [];
-  for (const day of days) {
-    const date = day.date_start;
-    const lead = (day.actions || []).find(a => a.action_type === "lead");
-    const link = (day.actions || []).find(a => a.action_type === "link_click");
-    // account_ext_id is REQUIRED on every row: a client with 2+ Meta ad accounts would
-    // otherwise upsert both onto the same PK (account_ext_id='') — last write wins.
-    const push = (name, val, unit) => { if (val != null) rows.push({ metric_name: name, metric_date: date, value: val, unit, account_ext_id: src.external_id }); };
-    push("impressions", toNumber(day.impressions), "int");
-    push("clicks",      toNumber(day.clicks), "int");
-    push("ctr",         toNumber(day.ctr), "pct");
-    push("cpc",         toNumber(day.cpc), "usd");
-    push("spend",       toNumber(day.spend), "usd");
-    push("leads",       lead ? Number(lead.value) : null, "int");
-    push("link_clicks", link ? Number(link.value) : null, "int");
+  const push = (name, val, unit, extra = {}) => {
+    if (val != null) rows.push({ metric_name: name, metric_date: extra.date, value: val, unit,
+      account_ext_id: src.external_id, entity: extra.entity || "", qualifier: extra.qualifier || "" });
+  };
+
+  // 1) counts at ad level
+  const ads = await metaInsights(src.external_id,
+    "level=ad&fields=campaign_name,adset_name,ad_name,impressions,clicks,spend,actions");
+  for (const r of ads) {
+    const date = r.date_start;
+    const entity = r.campaign_name || "";
+    const qualifier = `${r.adset_name || ""} › ${r.ad_name || ""}`;
+    const lead = (r.actions || []).find(a => a.action_type === "lead");
+    const link = (r.actions || []).find(a => a.action_type === "link_click");
+    push("impressions", toNumber(r.impressions), "int", { date, entity, qualifier });
+    push("clicks",      toNumber(r.clicks), "int", { date, entity, qualifier });
+    push("spend",       toNumber(r.spend), "usd", { date, entity, qualifier });
+    push("leads",       lead ? Number(lead.value) : null, "int", { date, entity, qualifier });
+    push("link_clicks", link ? Number(link.value) : null, "int", { date, entity, qualifier });
+  }
+
+  // 2) rates at account level, exactly as Meta computes them
+  const acct = await metaInsights(src.external_id, "level=account&fields=ctr,cpc");
+  for (const r of acct) {
+    push("ctr", toNumber(r.ctr), "pct", { date: r.date_start });
+    push("cpc", toNumber(r.cpc), "usd", { date: r.date_start });
   }
   return rows;
 }
