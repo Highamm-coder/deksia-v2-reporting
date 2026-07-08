@@ -79,14 +79,22 @@ async function sb(path, opts = {}) {
 
 async function ingest(source, clientSlug, rows) {
   if (!rows.length) return 0;
-  const res = await fetchT(`${SUPABASE_URL}/functions/v1/ingest-metrics`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${INGEST_TOKEN}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ source, client_slug: clientSlug, rows }),
-  });
-  const out = await res.json();
-  if (!res.ok) throw new Error(`ingest ${clientSlug}/${source}: ${JSON.stringify(out)}`);
-  return out.rows_upserted ?? 0;
+  // chunk large payloads — fine-grain backfills can be 10k+ rows per client/source,
+  // which blows the edge function's memory (WORKER_RESOURCE_LIMIT). Idempotent, so
+  // chunking is safe.
+  const CHUNK = 1500;
+  let total = 0;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const res = await fetchT(`${SUPABASE_URL}/functions/v1/ingest-metrics`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${INGEST_TOKEN}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ source, client_slug: clientSlug, rows: rows.slice(i, i + CHUNK) }),
+    }, 60000);
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(`ingest ${clientSlug}/${source}: ${JSON.stringify(out)}`);
+    total += out.rows_upserted ?? 0;
+  }
+  return total;
 }
 
 // Meta display strings -> number ("$7,852.95 USD", "1.71%", "" / "Not available" -> null)
