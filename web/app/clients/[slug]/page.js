@@ -1,62 +1,25 @@
 import { getSupabaseServer } from "../../../lib/supabase/server";
 import Header from "../../_components/Header";
 import ScriptBlock from "../../_components/ScriptBlock";
-import { fmtVal, fmtDelta, fmtMonth } from "../../../lib/format";
+import Performance from "./Performance";
 import { generateGoogleAdsScript } from "../../../lib/googleAdsScript";
 
 export const dynamic = "force-dynamic";
 const num = (v, d = 0) => (v == null ? "—" : Number(v).toLocaleString(undefined, { maximumFractionDigits: d }));
 
-const SRC_LABEL = { google_ads: "Google Ads", meta: "Meta", ga4: "GA4", callrail: "CallRail", pages: "Facebook Pages", email: "Email", seo: "SEO", other: "Other" };
-const SRC_ORDER = ["google_ads", "meta", "ga4", "callrail", "pages", "email", "seo", "other"];
-// Headline KPIs to lift to the top when present: [source, metric, label].
-// NOTE: no GA4 users KPI — unique-user counts are non-additive across channels/days;
-// a summed number is one GA4 itself never reports. Sessions/key events sum faithfully.
-const HEADLINE = [
-  ["meta", "spend", "Meta Spend"],
-  ["google_ads", "spend", "Ads Spend"],
-  ["meta", "leads", "Meta Leads"],
-  ["callrail", "mqls", "CallRail MQLs"],
-  ["ga4", "sessions", "GA4 Sessions"],
-];
-
 export default async function ClientDetail({ params }) {
   const slug = decodeURIComponent(params.slug);
   const supabase = getSupabaseServer();
   // single round trip: embed client_sources via FK, parallel with views
-  const [{ data: client }, { data: goals }, { data: pipeline }, { data: report }, { data: detail }] = await Promise.all([
+  const [{ data: client }, { data: goals }, { data: pipeline }, { data: detail }] = await Promise.all([
     supabase.from("clients").select("*, client_sources(*)").eq("slug", slug).maybeSingle(),
     supabase.from("v_goal_scoreboard").select("*").eq("slug", slug).order("metric_name"),
     supabase.from("v_pipeline_health").select("*").eq("slug", slug).order("source"),
-    supabase.from("v_client_report").select("*").eq("slug", slug),
     supabase.from("v_client_report_detail").select("*").eq("slug", slug),
   ]);
   if (!client) return (<><Header /><main><p>Client not found: {slug}</p></main></>);
   const sources = (client.client_sources || []).sort((a, b) => a.source.localeCompare(b.source) || String(a.external_id).localeCompare(String(b.external_id)));
   const gAdsScript = generateGoogleAdsScript(client.slug, client.name);
-
-  // KPI strip stays client-level (from the consolidated view)
-  const rows = report || [];
-  const bySource = {};
-  rows.forEach((r) => { (bySource[r.source] = bySource[r.source] || []).push(r); });
-  const curMonth = rows.map((r) => r.cur_month).sort().at(-1);
-
-  // tables render at per-account grain (multi-brand clients split out)
-  const byAcct = {}; // source -> account_ext_id -> { label, brand, rows[] }
-  (detail || []).forEach((r) => {
-    const s = (byAcct[r.source] = byAcct[r.source] || {});
-    const a = (s[r.account_ext_id] = s[r.account_ext_id] || { label: r.account_label, brand: r.brand, rows: [] });
-    a.rows.push(r);
-  });
-  const perfSources = SRC_ORDER.filter((s) => byAcct[s]);
-
-  // headline KPI picks that actually have data
-  const kpis = HEADLINE
-    .map(([src, metric, label]) => {
-      const row = (bySource[src] || []).find((r) => r.metric_name === metric);
-      return row ? { label, row } : null;
-    })
-    .filter(Boolean);
 
   return (
     <>
@@ -65,65 +28,7 @@ export default async function ClientDetail({ params }) {
         <p className="muted"><a href="/clients">← Clients</a></p>
         <h1 style={{ margin: "4px 0" }}>{client.name || client.slug} <span className="muted" style={{ fontSize: 13 }}>· {client.status} · {client.timezone}</span></h1>
 
-        {rows.length > 0 && (
-          <>
-            <h2>Performance <span className="muted" style={{ textTransform: "none", letterSpacing: 0 }}>· latest full data {fmtMonth(curMonth)} vs prior month</span></h2>
-            {kpis.length > 0 && (
-              <div className="kpis">
-                {kpis.map(({ label, row }) => {
-                  const d = fmtDelta(row.pct_change, row.direction);
-                  return (
-                    <div className="kpi" key={label}>
-                      <div className="v">{fmtVal(row.cur_value, row.unit)}</div>
-                      <div className="k">{label}</div>
-                      <div className={`d delta ${d.cls}`}>{d.text} <span className="muted" style={{ fontWeight: 400 }}>MoM</span></div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            {perfSources.map((src) => {
-              const accounts = Object.entries(byAcct[src])
-                .sort(([, a], [, b]) => String(a.brand || a.label || "").localeCompare(String(b.brand || b.label || "")));
-              const multi = accounts.length > 1;
-              return accounts.map(([acctId, acct]) => (
-                <div key={`${src}|${acctId}`} style={{ marginTop: 14 }}>
-                  <p className="srcgroup">
-                    {SRC_LABEL[src] || src}
-                    {multi && <span style={{ color: "var(--txt)" }}> — {acct.label || acctId}{acct.brand ? ` (${acct.brand})` : ""}</span>}
-                  </p>
-                  <table>
-                    <thead><tr>
-                      <th>Metric</th>
-                      <th className="num">{fmtMonth(acct.rows[0].cur_month)}</th>
-                      <th className="num">Prev</th>
-                      <th className="num">MoM</th>
-                      <th className="num">Days</th>
-                    </tr></thead>
-                    <tbody>
-                      {acct.rows.sort((a, b) => a.metric_name.localeCompare(b.metric_name)).map((r) => {
-                        const d = fmtDelta(r.pct_change, r.direction);
-                        return (
-                          <tr key={r.metric_name}>
-                            <td title={r.description || ""}>{r.metric_name.replace(/_/g, " ")}</td>
-                            <td className="num">{fmtVal(r.cur_value, r.unit)}</td>
-                            <td className="num muted">{r.prev_value == null ? "—" : fmtVal(r.prev_value, r.unit)}</td>
-                            <td className={`num delta ${d.cls}`}>{d.text}</td>
-                            <td className="num muted">{r.cur_days}{r.prev_days ? ` / ${r.prev_days}` : ""}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              ));
-            })}
-            <p className="muted" style={{ fontSize: 11, marginTop: 6 }}>
-              Values are agg-aware (counts summed, rates averaged). "Days" = data days in current / prior month —
-              partial months compare unequal spans.
-            </p>
-          </>
-        )}
+        <Performance detail={detail} />
 
         <h2>Goals ({goals?.length ?? 0})</h2>
         <table>
