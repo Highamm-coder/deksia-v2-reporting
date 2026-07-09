@@ -14,6 +14,10 @@ export default function LoginPage({ searchParams }) {
           <button type="submit">Sign in</button>
         </form>
         {error ? <div className="err">Sign-in failed — check your email and password.</div> : null}
+        <p className="muted" style={{ marginTop: 14, display: "flex", gap: 14 }}>
+          <a href="/reset">Forgot password?</a>
+          <a href="/signup">Create account (@deksia.com)</a>
+        </p>
       </div>
     </main>
   );

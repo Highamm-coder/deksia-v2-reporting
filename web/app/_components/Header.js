@@ -7,6 +7,7 @@ export default function Header() {
       <nav>
         <a href="/">Overview</a>
         <a href="/clients">Clients</a>
+        <a href="/account">Account</a>
       </nav>
       <span className="spacer" />
       <form action={logout}>
