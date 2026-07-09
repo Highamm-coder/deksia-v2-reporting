@@ -2,6 +2,7 @@ import { getSupabaseServer } from "../../../lib/supabase/server";
 import Header from "../../_components/Header";
 import ScriptBlock from "../../_components/ScriptBlock";
 import Performance from "./Performance";
+import Campaigns from "./Campaigns";
 import { generateGoogleAdsScript } from "../../../lib/googleAdsScript";
 
 export const dynamic = "force-dynamic";
@@ -11,11 +12,12 @@ export default async function ClientDetail({ params }) {
   const slug = decodeURIComponent(params.slug);
   const supabase = getSupabaseServer();
   // single round trip: embed client_sources via FK, parallel with views
-  const [{ data: client }, { data: goals }, { data: pipeline }, { data: detail }] = await Promise.all([
+  const [{ data: client }, { data: goals }, { data: pipeline }, { data: detail }, { data: campaigns }] = await Promise.all([
     supabase.from("clients").select("*, client_sources(*)").eq("slug", slug).maybeSingle(),
     supabase.from("v_goal_scoreboard").select("*").eq("slug", slug).order("metric_name"),
     supabase.from("v_pipeline_health").select("*").eq("slug", slug).order("source"),
     supabase.from("v_client_report_detail").select("*").eq("slug", slug),
+    supabase.from("v_client_campaigns").select("*").eq("slug", slug),
   ]);
   if (!client) return (<><Header /><main><p>Client not found: {slug}</p></main></>);
   const sources = (client.client_sources || []).sort((a, b) => a.source.localeCompare(b.source) || String(a.external_id).localeCompare(String(b.external_id)));
@@ -29,6 +31,8 @@ export default async function ClientDetail({ params }) {
         <h1 style={{ margin: "4px 0" }}>{client.name || client.slug} <span className="muted" style={{ fontSize: 13 }}>· {client.status} · {client.timezone}</span></h1>
 
         <Performance detail={detail} />
+
+        <Campaigns campaigns={campaigns} />
 
         <h2>Goals ({goals?.length ?? 0})</h2>
         <table>
