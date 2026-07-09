@@ -18,7 +18,7 @@ const LS_KEY = "deksia_pinned_metrics";
 const label = (m) => LABEL[m] || m.replace(/_/g, " ");
 const prio = (m) => { const i = PRIORITY.indexOf(m); return i === -1 ? 99 : i; };
 
-export default function Performance({ detail }) {
+export default function Performance({ detail, only, showHighlights = true, showTables = true }) {
   // Deterministic first render (server + first client paint) = default set,
   // then hydrate from localStorage. Avoids hydration mismatch.
   const [pins, setPins] = useState(PRIORITY);
@@ -29,8 +29,10 @@ export default function Performance({ detail }) {
   }, []);
   useEffect(() => { if (ready) try { localStorage.setItem(LS_KEY, JSON.stringify(pins)); } catch {} }, [pins, ready]);
 
-  const rows = detail || [];
-  if (!rows.length) return null;
+  // `only` = restrict to these sources (per-tab reuse); undefined = all sources.
+  const onlySet = only ? new Set(only) : null;
+  const rows = (detail || []).filter((r) => !onlySet || onlySet.has(r.source));
+  if (!rows.length) return <p className="muted" style={{ fontSize: 13 }}>No data for this section in the latest month.</p>;
   const pinned = new Set(pins);
   const toggle = (m) => setPins((p) => (p.includes(m) ? p.filter((x) => x !== m) : [...p, m]));
 
@@ -68,33 +70,37 @@ export default function Performance({ detail }) {
 
   return (
     <>
-      <h2>Highlighted <span className="muted" style={{ textTransform: "none", letterSpacing: 0 }}>· {fmtMonth(curMonth)} vs prior month · pin ★ to add</span></h2>
-      {highlights.length ? (
-        <div className="kpis">
-          {highlights.map((r) => {
-            const d = fmtDelta(r.pct_change, r.direction);
-            const multi = Object.keys(byAcct[r.source] || {}).length > 1;
-            return (
-              <div className="kpi" key={`${r.source}|${r.account_ext_id}|${r.metric_name}`} style={{ borderColor: "var(--accent)" }}>
-                <div className="v">{fmtVal(r.cur_value, r.unit)}</div>
-                <div className="k">
-                  {label(r.metric_name)} <span className="muted">· {SRC_LABEL[r.source] || r.source}{multi && r.brand ? ` (${r.brand})` : ""}</span>
-                </div>
-                <div className={`d delta ${d.cls}`}>{d.text} <span className="muted" style={{ fontWeight: 400 }}>MoM</span></div>
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <p className="muted" style={{ fontSize: 13 }}>No metrics pinned. Tap ★ on any row below to highlight it.</p>
-      )}
-      {missing.length > 0 && (
-        <p className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-          Pinned but no data yet for this client: {missing.map(label).join(", ")}.
-        </p>
+      {showHighlights && (
+        <>
+          <h2>Highlighted <span className="muted" style={{ textTransform: "none", letterSpacing: 0 }}>· {fmtMonth(curMonth)} vs prior month · pin ★ to add</span></h2>
+          {highlights.length ? (
+            <div className="kpis">
+              {highlights.map((r) => {
+                const d = fmtDelta(r.pct_change, r.direction);
+                const multi = Object.keys(byAcct[r.source] || {}).length > 1;
+                return (
+                  <div className="kpi" key={`${r.source}|${r.account_ext_id}|${r.metric_name}`} style={{ borderColor: "var(--accent)" }}>
+                    <div className="v">{fmtVal(r.cur_value, r.unit)}</div>
+                    <div className="k">
+                      {label(r.metric_name)} <span className="muted">· {SRC_LABEL[r.source] || r.source}{multi && r.brand ? ` (${r.brand})` : ""}</span>
+                    </div>
+                    <div className={`d delta ${d.cls}`}>{d.text} <span className="muted" style={{ fontWeight: 400 }}>MoM</span></div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="muted" style={{ fontSize: 13 }}>No metrics pinned. Tap ★ on any row below to highlight it.</p>
+          )}
+          {missing.length > 0 && (
+            <p className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+              Pinned but no data yet for this client: {missing.map(label).join(", ")}.
+            </p>
+          )}
+        </>
       )}
 
-      {perfSources.map((src) => {
+      {showTables && perfSources.map((src) => {
         const accounts = Object.entries(byAcct[src])
           .sort(([, a], [, b]) => String(a.brand || a.label || "").localeCompare(String(b.brand || b.label || "")));
         return accounts.map(([acctId, acct]) => (
@@ -131,9 +137,11 @@ export default function Performance({ detail }) {
           </div>
         ));
       })}
-      <p className="muted" style={{ fontSize: 11, marginTop: 6 }}>
-        Agg-aware (counts summed, rates as the platform reports them). Pins are saved in this browser.
-      </p>
+      {showTables && (
+        <p className="muted" style={{ fontSize: 11, marginTop: 6 }}>
+          Agg-aware (counts summed, rates as the platform reports them). Pins are saved in this browser.
+        </p>
+      )}
     </>
   );
 }
