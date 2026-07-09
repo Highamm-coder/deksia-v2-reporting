@@ -139,17 +139,22 @@ async function pullCallRail(src) {
   if (!account) { console.warn(`CallRail ${src.slug}: no account_id`); return []; }
   const hdr = { Authorization: `Token token=${CALLRAIL_API_KEY}` };
   const base = `https://api.callrail.com/v3/a/${account}`;
+  // returns `${date}|${source}` -> { n: total, q: qualified (CallRail lead_status='good_lead') }
   const fetchAll = async (endpoint, dateField) => {
-    const byKey = {}; // `${date}|${source}` -> count
+    const byKey = {};
     const HARD_CAP = 200; // sanity cap (~50k records/day/company); warn if hit
     for (let page = 1; ; page++) {
-      const q = `company_id=${company}&start_date=${START}&end_date=${END}&per_page=250&page=${page}&fields=${dateField},source`;
-      const d = await fetchT(`${base}/${endpoint}.json?${q}`, { headers: hdr }).then(r => r.json());
+      const q = `company_id=${company}&start_date=${START}&end_date=${END}&per_page=250&page=${page}&fields=${dateField},source,lead_status`;
+      const r0 = await fetchT(`${base}/${endpoint}.json?${q}`, { headers: hdr });
+      const d = await r0.json().catch(() => ({}));
+      if (!r0.ok || d.error) throw new Error(`callrail ${endpoint} ${company}: ${r0.status} ${JSON.stringify(d.error || d).slice(0, 150)}`);
       const recs = d[endpoint === "calls" ? "calls" : "form_submissions"] || [];
       for (const r of recs) {
         const day = (r[dateField] || "").slice(0, 10); if (!day) continue;
         const s = r.source || "Unknown";
-        byKey[`${day}|${s}`] = (byKey[`${day}|${s}`] || 0) + 1;
+        const cell = byKey[`${day}|${s}`] || (byKey[`${day}|${s}`] = { n: 0, q: 0 });
+        cell.n += 1;
+        if (r.lead_status === "good_lead") cell.q += 1; // CallRail's own qualification
       }
       const totalPages = d.total_pages || 1;
       if (page >= totalPages || !recs.length) break;
@@ -163,12 +168,15 @@ async function pullCallRail(src) {
   // in the tracker). account_ext_id=company so a client's multiple CallRail companies
   // (e.g. Hatton Wake + Nebar) stay distinct on the PK instead of overwriting each other.
   const rows = [];
+  const zero = { n: 0, q: 0 };
   for (const k of new Set([...Object.keys(calls), ...Object.keys(forms)])) {
     const [day, source] = k.split("|");
-    const c = calls[k] || 0, f = forms[k] || 0;
-    if (c) rows.push({ metric_name: "calls", metric_date: day, value: c, unit: "int", account_ext_id: company, qualifier: source });
-    if (f) rows.push({ metric_name: "forms", metric_date: day, value: f, unit: "int", account_ext_id: company, qualifier: source });
-    rows.push({ metric_name: "mqls", metric_date: day, value: c + f, unit: "int", account_ext_id: company, qualifier: source });
+    const c = calls[k] || zero, f = forms[k] || zero;
+    const base_ = { metric_date: day, unit: "int", account_ext_id: company, qualifier: source };
+    if (c.n) rows.push({ ...base_, metric_name: "calls", value: c.n });
+    if (f.n) rows.push({ ...base_, metric_name: "forms", value: f.n });
+    rows.push({ ...base_, metric_name: "mqls", value: c.n + f.n });
+    rows.push({ ...base_, metric_name: "qualified_leads", value: c.q + f.q });
   }
   return rows;
 }
@@ -263,11 +271,17 @@ async function pullMeta(src) {
     push("link_clicks", link ? Number(link.value) : null, "int", { date, entity, qualifier });
   }
 
-  // 2) rates at account level, exactly as Meta computes them
-  const acct = await metaInsights(src.external_id, "level=account&fields=ctr,cpc");
+  // 2) account-level metrics Meta reports as de-duplicated / computed totals — these are
+  // NOT summable across ads (reach counts unique people; ctr/cpc/cpl are ratios), so they
+  // live at account grain (entity='', qualifier='') exactly as Meta reports them per day.
+  const acct = await metaInsights(src.external_id, "level=account&fields=ctr,cpc,reach,cost_per_action_type");
   for (const r of acct) {
-    push("ctr", toNumber(r.ctr), "pct", { date: r.date_start });
-    push("cpc", toNumber(r.cpc), "usd", { date: r.date_start });
+    push("ctr",   toNumber(r.ctr), "pct", { date: r.date_start });
+    push("cpc",   toNumber(r.cpc), "usd", { date: r.date_start });
+    push("reach", toNumber(r.reach), "int", { date: r.date_start });
+    // Meta's own cost-per-lead (cost_per_action_type where action_type='lead')
+    const cpl = (r.cost_per_action_type || []).find(a => a.action_type === "lead");
+    push("cost_per_lead", cpl ? Number(cpl.value) : null, "usd", { date: r.date_start });
   }
   return rows;
 }
