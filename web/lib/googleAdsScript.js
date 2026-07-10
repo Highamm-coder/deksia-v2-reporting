@@ -17,10 +17,19 @@ var CLIENT_SLUG  = "__CLIENT_SLUG__";
 var INGEST_TOKEN = "PASTE_INGEST_TOKEN";
 var INGEST_URL   = "https://ykxauddrsnuwkvimkdhw.supabase.co/functions/v1/ingest-metrics";
 
+// Self-healing 3-day lookback: late-reporting days get caught on the next run and
+// Google's restated conversions refresh. Upserts are idempotent - re-posting is safe.
+var LOOKBACK_DAYS = 3;
+
 function main() {
   var acct = AdsApp.currentAccount();
   var cid = acct.getCustomerId();
-  var day = Utilities.formatDate(new Date(Date.now() - 864e5), acct.getTimeZone(), "yyyy-MM-dd");
+  for (var d = 1; d <= LOOKBACK_DAYS; d++) {
+    postDay_(acct, cid, Utilities.formatDate(new Date(Date.now() - d * 864e5), acct.getTimeZone(), "yyyy-MM-dd"));
+  }
+}
+
+function postDay_(acct, cid, day) {
   var rows = [];
 
   var qa = "SELECT campaign.name, ad_group.name, metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions " +
