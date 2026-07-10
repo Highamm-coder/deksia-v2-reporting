@@ -1,6 +1,7 @@
 import { getSupabaseServer } from "../../../lib/supabase/server";
 import Performance from "./Performance";
 import Campaigns from "./Campaigns";
+import Derived from "./Derived";
 import PlatformNav from "./PlatformNav";
 
 export const dynamic = "force-dynamic";
@@ -14,11 +15,12 @@ const GOAL_STATUS_ORDER = ["off_track", "at_risk", "missed", "pending", "on_trac
 export default async function ClientDashboard({ params }) {
   const slug = decodeURIComponent(params.slug);
   const supabase = getSupabaseServer();
-  const [{ data: detail }, { data: campaigns }, { data: goals }, { data: provRows }] = await Promise.all([
+  const [{ data: detail }, { data: campaigns }, { data: goals }, { data: provRows }, { data: derived }] = await Promise.all([
     supabase.from("v_client_report_detail").select("*").eq("slug", slug),
     supabase.from("v_client_campaigns").select("*").eq("slug", slug),
     supabase.from("v_goal_scoreboard").select("*").eq("slug", slug).order("metric_name"),
     supabase.from("v_client_provenance").select("*").eq("slug", slug),
+    supabase.from("v_client_derived").select("*").eq("slug", slug).order("label"),
   ]);
   // provenance keyed by source|account for the section ⓘ popovers
   const prov = {};
@@ -31,6 +33,9 @@ export default async function ClientDashboard({ params }) {
     <>
       {/* pinned highlights across all platforms */}
       <Performance detail={detail} showTables={false} />
+
+      {/* Deksia-computed formulas (e.g. Blended CPL) — clearly separated from platform numbers */}
+      <Derived derived={derived} />
 
       <PlatformNav platforms={platforms} />
 
