@@ -1,5 +1,5 @@
 import { getSupabaseServer } from "../../lib/supabase/server";
-import Header from "../_components/Header";
+import AppShell from "../_components/AppShell";
 import { updatePassword } from "../reset/actions";
 
 export const dynamic = "force-dynamic";
@@ -17,9 +17,7 @@ export default async function AccountPage({ searchParams }) {
   const ok = searchParams?.ok;
 
   return (
-    <>
-      <Header />
-      <main>
+    <AppShell>
         <h2>Account</h2>
         <div className="card">
           <p style={{ marginTop: 0 }}><span className="muted">Signed in as</span><br /><strong>{user?.email}</strong></p>
@@ -48,7 +46,6 @@ export default async function AccountPage({ searchParams }) {
           <a href="/signup">/signup</a> (confirmation email required). Other domains are blocked at the
           database level. Forgotten password? <a href="/reset">/reset</a> emails a recovery link.
         </p>
-      </main>
-    </>
+    </AppShell>
   );
 }

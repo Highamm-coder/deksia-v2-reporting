@@ -88,7 +88,7 @@ async function ingest(source, clientSlug, rows) {
     const res = await fetchT(`${SUPABASE_URL}/functions/v1/ingest-metrics`, {
       method: "POST",
       headers: { Authorization: `Bearer ${INGEST_TOKEN}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ source, client_slug: clientSlug, rows: rows.slice(i, i + CHUNK) }),
+      body: JSON.stringify({ source, client_slug: clientSlug, writer: "github-actions/run.mjs", rows: rows.slice(i, i + CHUNK) }),
     }, 60000);
     const out = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(`ingest ${clientSlug}/${source}: ${JSON.stringify(out)}`);

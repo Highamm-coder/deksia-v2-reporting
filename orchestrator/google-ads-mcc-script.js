@@ -29,9 +29,20 @@ function main() {
   }
 }
 
+// Self-healing 3-day lookback: accounts that hadn't finished reporting when an
+// earlier run fired get caught on the next run, and Google's restated conversions
+// refresh too. Upserts are idempotent, so re-posting the same day is safe.
+var LOOKBACK_DAYS = 3;
+
 function postAccount_(acct) {
   var cid = acct.getCustomerId();
-  var day = Utilities.formatDate(new Date(Date.now() - 864e5), acct.getTimeZone(), "yyyy-MM-dd");
+  for (var d = 1; d <= LOOKBACK_DAYS; d++) {
+    var day = Utilities.formatDate(new Date(Date.now() - d * 864e5), acct.getTimeZone(), "yyyy-MM-dd");
+    postAccountDay_(acct, cid, day);
+  }
+}
+
+function postAccountDay_(acct, cid, day) {
   var rows = [];
 
   // ad-group-level metrics (finest grain that stays within Scripts limits;

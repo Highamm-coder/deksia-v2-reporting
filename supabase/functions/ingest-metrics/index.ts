@@ -57,6 +57,13 @@ Deno.serve(async (req: Request) => {
   }
   if (!clientId) return json({ error: "client not resolved (need client_id, client_slug, or known cid)" }, 422);
 
+  // provenance: stamp who wrote every row. Callers self-declare via body.writer;
+  // fallbacks — cid-resolved bodies only come from the Google Ads Scripts, and
+  // slug-based bodies come from the GitHub Actions runner.
+  const writer = String(
+    body.writer || (body.cid ? "google-ads-script" : "github-actions/run.mjs"),
+  ).slice(0, 60);
+
   const payload = rows.map((r: any) => ({
     client_id: clientId, source,
     metric_name: String(r.metric_name),
@@ -65,7 +72,7 @@ Deno.serve(async (req: Request) => {
     entity: String(r.entity ?? ""),
     qualifier: String(r.qualifier ?? ""),
     value: r.value === null || r.value === undefined ? null : Number(r.value),
-    unit: r.unit ?? null, meta: r.meta ?? {},
+    unit: r.unit ?? null, meta: { ...(r.meta ?? {}), by: writer },
     ingested_at: new Date().toISOString(),
   }));
   const bad = payload.find((r) => !r.metric_name || !/^\d{4}-\d{2}-\d{2}$/.test(r.metric_date));
