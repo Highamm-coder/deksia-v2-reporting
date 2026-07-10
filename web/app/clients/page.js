@@ -1,5 +1,5 @@
 import { getSupabaseServer } from "../../lib/supabase/server";
-import Header from "../_components/Header";
+import AppShell from "../_components/AppShell";
 
 export const dynamic = "force-dynamic";
 
@@ -12,9 +12,7 @@ export default async function Clients() {
     .order("slug");
 
   return (
-    <>
-      <Header />
-      <main>
+    <AppShell>
         <h2>Clients ({data?.length ?? 0})</h2>
         <table>
           <thead><tr><th>Client</th><th>Name</th><th>Status</th><th>Timezone</th></tr></thead>
@@ -30,7 +28,6 @@ export default async function Clients() {
           </tbody>
         </table>
         <p className="muted" style={{ marginTop: 14 }}>Add/edit clients & sources — coming in P2.</p>
-      </main>
-    </>
+    </AppShell>
   );
 }

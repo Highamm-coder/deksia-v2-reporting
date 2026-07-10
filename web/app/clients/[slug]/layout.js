@@ -1,5 +1,5 @@
 import { getSupabaseServer } from "../../../lib/supabase/server";
-import Header from "../../_components/Header";
+import AppShell from "../../_components/AppShell";
 import MonthPicker from "./MonthPicker";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +13,7 @@ export default async function ClientLayout({ children, params }) {
     .from("clients").select("id, slug, name, status, timezone").eq("slug", slug).maybeSingle();
 
   if (!client) {
-    return (<><Header /><main><p className="muted"><a href="/clients">← Clients</a></p><p>Client not found: {slug}</p></main></>);
+    return (<AppShell><p className="muted"><a href="/clients">← Clients</a></p><p>Client not found: {slug}</p></AppShell>);
   }
 
   // distinct months with data for this client (latest first) → month picker options
@@ -23,9 +23,7 @@ export default async function ClientLayout({ children, params }) {
   const months = [...new Set((monthRows || []).map((r) => String(r.month_start).slice(0, 7)))];
 
   return (
-    <>
-      <Header />
-      <main>
+    <AppShell>
         <p className="muted"><a href="/clients">← Clients</a></p>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginBottom: 8 }}>
           <h1 style={{ margin: "4px 0" }}>{client.name || client.slug}{" "}
@@ -36,7 +34,6 @@ export default async function ClientLayout({ children, params }) {
           </span>
         </div>
         {children}
-      </main>
-    </>
+    </AppShell>
   );
 }

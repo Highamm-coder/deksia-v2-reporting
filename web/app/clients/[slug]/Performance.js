@@ -83,11 +83,11 @@ export default function Performance({ detail, only, showHighlights = true, showT
           <h2>Highlighted <span className="muted" style={{ textTransform: "none", letterSpacing: 0 }}>· {fmtMonth(curMonth)} vs prior month · pin ★ to add</span></h2>
           {highlights.length ? (
             <div className="kpis">
-              {highlights.map((r) => {
+              {highlights.map((r, i) => {
                 const d = fmtDelta(r.pct_change, r.direction);
                 const multi = Object.keys(byAcct[r.source] || {}).length > 1;
                 return (
-                  <div className="kpi" key={`${r.source}|${r.account_ext_id}|${r.metric_name}`} style={{ borderColor: "var(--accent)" }}>
+                  <div className={`kpi tint c${(i % 4) + 1}`} key={`${r.source}|${r.account_ext_id}|${r.metric_name}`}>
                     <div className="v">{fmtVal(r.cur_value, r.unit)}</div>
                     <div className="k">
                       {label(r.metric_name)} <span className="muted">· {SRC_LABEL[r.source] || r.source}{multi && r.brand ? ` (${r.brand})` : ""}</span>

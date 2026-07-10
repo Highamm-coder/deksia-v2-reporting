@@ -1,5 +1,5 @@
 import { getSupabaseServer } from "../lib/supabase/server";
-import Header from "./_components/Header";
+import AppShell from "./_components/AppShell";
 
 export const dynamic = "force-dynamic";
 
@@ -19,9 +19,7 @@ export default async function Overview() {
   const fresh = (pipeline || []).filter((r) => r.sync_status === "fresh").length;
 
   return (
-    <>
-      <Header />
-      <main>
+    <AppShell>
         <h2>Pipeline Health — {fresh}/{pipeline?.length ?? 0} fresh</h2>
         <p className="muted" style={{ margin: "-4px 0 10px", fontSize: 12, display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
           <span><span className="pill fresh">fresh</span> recent data</span>
@@ -63,7 +61,6 @@ export default async function Overview() {
             ))}
           </tbody>
         </table>
-      </main>
-    </>
+    </AppShell>
   );
 }
