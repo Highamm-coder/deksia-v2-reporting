@@ -72,3 +72,16 @@ button { background:var(--accent); color:#0b1220; border:0; border-radius:7px;
 .content > main { padding:26px 30px; max-width:1180px; margin:0 auto; }
 @media (max-width:820px){ .app{flex-direction:column} .sidebar{width:auto;flex-direction:row;
   flex-wrap:wrap;border-right:0;border-bottom:1px solid var(--line)} .sidebar .grow{display:none} }
+
+/* ---- loading skeletons ---- */
+@keyframes skel { 0%{opacity:.45} 50%{opacity:.9} 100%{opacity:.45} }
+.skel { background:var(--panel2); border-radius:10px; animation:skel 1.2s ease-in-out infinite; }
+
+/* ---- sidebar client search ---- */
+.side-search input { margin:0; padding:8px 11px; font-size:13px; background:var(--bg); }
+.side-search .hits { display:flex; flex-direction:column; gap:2px; margin-top:6px; }
+.side-search .hit { display:block; padding:7px 10px; border-radius:8px; font-size:13px;
+  color:var(--txt); text-decoration:none; }
+.side-search .hit:hover, .side-search .hit.sel { background:var(--panel2); text-decoration:none; }
+.side-search .sub { color:var(--muted); font-size:10.5px; text-transform:uppercase;
+  letter-spacing:.06em; margin:10px 2px 4px; }
