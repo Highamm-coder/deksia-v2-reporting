@@ -39,7 +39,9 @@ export default async function ClientDashboard({ params }) {
       ))}
 
       <section id="goals" style={anchor}>
-        <h2 style={{ color: "var(--accent)" }}>Goals ({goals?.length ?? 0})</h2>
+        <h2 style={{ color: "var(--accent)" }}>Goals ({goals?.length ?? 0}){" "}
+          <a href={`/clients/${encodeURIComponent(slug)}/goals`} style={{ fontSize: 12, fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>· manage →</a>
+        </h2>
         {goals?.length ? (
           <table>
             <thead><tr><th>Source</th><th>Metric</th><th className="num">Current</th><th className="num">Target</th><th className="num">%</th><th>Status</th><th className="num">Days left</th></tr></thead>
