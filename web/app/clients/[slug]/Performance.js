@@ -22,19 +22,27 @@ export default function Performance({ detail, only, showHighlights = true, showT
   // Deterministic first render (server + first client paint) = default set,
   // then hydrate from localStorage. Avoids hydration mismatch.
   const [pins, setPins] = useState(PRIORITY);
-  const [ready, setReady] = useState(false);
+  // Hydrate from localStorage, and stay in sync with sibling <Performance> instances on
+  // the same page (multiple platform sections) via a custom event + cross-tab storage.
   useEffect(() => {
-    try { const s = localStorage.getItem(LS_KEY); if (s) setPins(JSON.parse(s)); } catch {}
-    setReady(true);
+    const sync = () => { try { const s = localStorage.getItem(LS_KEY); if (s) setPins(JSON.parse(s)); } catch {} };
+    sync();
+    window.addEventListener("deksia-pins", sync);
+    window.addEventListener("storage", sync);
+    return () => { window.removeEventListener("deksia-pins", sync); window.removeEventListener("storage", sync); };
   }, []);
-  useEffect(() => { if (ready) try { localStorage.setItem(LS_KEY, JSON.stringify(pins)); } catch {} }, [pins, ready]);
 
   // `only` = restrict to these sources (per-tab reuse); undefined = all sources.
   const onlySet = only ? new Set(only) : null;
   const rows = (detail || []).filter((r) => !onlySet || onlySet.has(r.source));
   if (!rows.length) return <p className="muted" style={{ fontSize: 13 }}>No data for this section in the latest month.</p>;
   const pinned = new Set(pins);
-  const toggle = (m) => setPins((p) => (p.includes(m) ? p.filter((x) => x !== m) : [...p, m]));
+  const toggle = (m) => setPins((p) => {
+    const next = p.includes(m) ? p.filter((x) => x !== m) : [...p, m];
+    try { localStorage.setItem(LS_KEY, JSON.stringify(next)); } catch {}
+    if (typeof window !== "undefined") setTimeout(() => window.dispatchEvent(new CustomEvent("deksia-pins")), 0);
+    return next;
+  });
 
   const curMonth = rows.map((r) => r.cur_month).sort().at(-1);
 
@@ -137,7 +145,7 @@ export default function Performance({ detail, only, showHighlights = true, showT
           </div>
         ));
       })}
-      {showTables && (
+      {showTables && !only && (
         <p className="muted" style={{ fontSize: 11, marginTop: 6 }}>
           Agg-aware (counts summed, rates as the platform reports them). Pins are saved in this browser.
         </p>

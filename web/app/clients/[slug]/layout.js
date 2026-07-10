@@ -1,6 +1,5 @@
 import { getSupabaseServer } from "../../../lib/supabase/server";
 import Header from "../../_components/Header";
-import ClientNav from "./ClientNav";
 import MonthPicker from "./MonthPicker";
 
 export const dynamic = "force-dynamic";
@@ -28,12 +27,14 @@ export default async function ClientLayout({ children, params }) {
       <Header />
       <main>
         <p className="muted"><a href="/clients">← Clients</a></p>
-        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginBottom: 8 }}>
           <h1 style={{ margin: "4px 0" }}>{client.name || client.slug}{" "}
             <span className="muted" style={{ fontSize: 13 }}>· {client.status} · {client.timezone}</span></h1>
-          <MonthPicker months={months} />
+          <span style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <MonthPicker months={months} />
+            <a href={`/clients/${encodeURIComponent(client.slug)}/settings`} className="muted" style={{ fontSize: 13 }}>⚙ Settings</a>
+          </span>
         </div>
-        <ClientNav slug={client.slug} />
         {children}
       </main>
     </>
