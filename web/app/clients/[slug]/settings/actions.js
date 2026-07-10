@@ -27,6 +27,17 @@ export async function addDerived(formData) {
   const supabase = getSupabaseServer();
   const { error } = await supabase.from("derived_metrics")
     .insert({ client_id: scope, name, label, unit, numerator, denominator });
+  if (!error) {
+    // register under source='derived' so goals can target it (FK) and it appears in
+    // the goal editor's metric picker. agg='avg' = level semantics in the tracker.
+    await supabase.from("metric_definitions").upsert({
+      source: "derived", metric_name: name, unit,
+      direction_default: unit === "usd" ? "decrease" : "increase",
+      agg: "avg",
+      description: `${label} — Deksia-computed formula`,
+      provenance: "Deksia-computed (ratio of platform sums) — not a platform-reported number.",
+    }, { onConflict: "source,metric_name" });
+  }
   return back(slug, error ? "?derr=1" : "?dok=1");
 }
 
