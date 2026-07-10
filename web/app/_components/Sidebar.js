@@ -3,7 +3,8 @@ import { usePathname } from "next/navigation";
 import { logout } from "../login/actions";
 
 const NAV = [
-  ["/", "Overview", "◧"],
+  ["/", "Scoreboard", "◎"],
+  ["/pipeline", "Pipeline health", "◧"],
   ["/clients", "Clients", "▤"],
   ["/account", "Account", "⚙"],
 ];
