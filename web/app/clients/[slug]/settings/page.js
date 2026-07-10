@@ -8,9 +8,10 @@ const num = (v, d = 0) => (v == null ? "—" : Number(v).toLocaleString(undefine
 export default async function SettingsTab({ params }) {
   const slug = decodeURIComponent(params.slug);
   const supabase = getSupabaseServer();
-  const [{ data: client }, { data: pipeline }] = await Promise.all([
+  const [{ data: client }, { data: pipeline }, { data: prov }] = await Promise.all([
     supabase.from("clients").select("*, client_sources(*)").eq("slug", slug).maybeSingle(),
     supabase.from("v_pipeline_health").select("*").eq("slug", slug).order("source"),
+    supabase.from("v_client_provenance").select("*").eq("slug", slug).order("source"),
   ]);
   if (!client) return <p>Client not found.</p>;
   const sources = (client.client_sources || []).sort((a, b) => a.source.localeCompare(b.source) || String(a.external_id).localeCompare(String(b.external_id)));
@@ -38,6 +39,23 @@ export default async function SettingsTab({ params }) {
               </tr>
             );
           })}
+        </tbody>
+      </table>
+
+      <h2>Data provenance — where every number comes from</h2>
+      <table>
+        <thead><tr><th>Source</th><th>Account</th><th style={{ whiteSpace: "normal" }}>Method</th><th>Coverage</th><th>Last pulled</th><th>Written by</th></tr></thead>
+        <tbody>
+          {(prov || []).map((p) => (
+            <tr key={`${p.source}|${p.account_ext_id}`}>
+              <td className="muted">{p.source}</td>
+              <td style={{ whiteSpace: "normal" }}>{p.account_label}{p.account_ext_id && p.account_label !== p.account_ext_id ? <span className="muted" style={{ fontSize: 11 }}> · {p.account_ext_id}</span> : null}</td>
+              <td style={{ whiteSpace: "normal", fontSize: 12 }} className="muted">{p.method}<br /><span style={{ fontSize: 11 }}>{p.api} · {p.cadence}</span></td>
+              <td style={{ fontSize: 12 }}>{p.first_day} → {p.last_day}</td>
+              <td style={{ fontSize: 12 }}>{p.last_ingested ? new Date(p.last_ingested).toLocaleString() : "—"}</td>
+              <td className="muted" style={{ fontSize: 12 }}>{(p.writers || []).join(", ")}</td>
+            </tr>
+          ))}
         </tbody>
       </table>
 

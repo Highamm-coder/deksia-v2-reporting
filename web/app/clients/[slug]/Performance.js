@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { fmtVal, fmtDelta, fmtMonth } from "../../../lib/format";
+import InfoDot from "../../_components/InfoDot";
 
 // The metrics that matter, in priority order — the default pinned set.
 const PRIORITY = ["ctr", "spend", "cost_per_lead", "impressions", "reach", "leads", "qualified_leads", "mqls", "calls"];
@@ -18,7 +19,9 @@ const LS_KEY = "deksia_pinned_metrics";
 const label = (m) => LABEL[m] || m.replace(/_/g, " ");
 const prio = (m) => { const i = PRIORITY.indexOf(m); return i === -1 ? 99 : i; };
 
-export default function Performance({ detail, only, showHighlights = true, showTables = true }) {
+// `prov` (optional): map keyed `${source}|${account_ext_id}` → provenance row from
+// v_client_provenance; renders an ⓘ popover on each section header.
+export default function Performance({ detail, only, showHighlights = true, showTables = true, prov = null }) {
   // Deterministic first render (server + first client paint) = default set,
   // then hydrate from localStorage. Avoids hydration mismatch.
   const [pins, setPins] = useState(PRIORITY);
@@ -116,6 +119,19 @@ export default function Performance({ detail, only, showHighlights = true, showT
             <p className="srcgroup">
               {SRC_LABEL[src] || src}
               {accounts.length > 1 && <span style={{ color: "var(--txt)" }}> — {acct.label || acctId}{acct.brand ? ` (${acct.brand})` : ""}</span>}
+              {(() => {
+                const p = prov?.[`${src}|${acctId}`];
+                return p ? (
+                  <InfoDot title={`Where this ${SRC_LABEL[src] || src} data comes from`} lines={[
+                    ["Account", `${p.account_label}${p.account_ext_id ? ` (${p.account_ext_id})` : ""}`],
+                    ["Method", p.method],
+                    ["API", p.api],
+                    ["Cadence", p.cadence],
+                    ["Coverage", `${p.first_day} → ${p.last_day} · last pulled ${p.last_ingested ? new Date(p.last_ingested).toLocaleString() : "—"}`],
+                    ["Written by", (p.writers || []).join(", ")],
+                  ]} />
+                ) : null;
+              })()}
             </p>
             <table>
               <thead><tr>
