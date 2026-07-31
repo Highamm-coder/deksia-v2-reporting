@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { fmtVal, fmtDelta, fmtMonth } from "../../../lib/format";
 import InfoDot from "../../_components/InfoDot";
+import Sparkline from "../../_components/Sparkline";
 
 // The metrics that matter, in priority order — the default pinned set.
 const PRIORITY = ["ctr", "spend", "cost_per_lead", "impressions", "reach", "leads", "qualified_leads", "mqls", "calls"];
@@ -21,7 +22,9 @@ const prio = (m) => { const i = PRIORITY.indexOf(m); return i === -1 ? 99 : i; }
 
 // `prov` (optional): map keyed `${source}|${account_ext_id}` → provenance row from
 // v_client_provenance; renders an ⓘ popover on each section header.
-export default function Performance({ detail, only, showHighlights = true, showTables = true, prov = null }) {
+// `series` (optional): map metric_name → [{m,v}] client-level monthly series (additive
+// metrics only) for sparklines on the highlight cards.
+export default function Performance({ detail, only, showHighlights = true, showTables = true, prov = null, series = null }) {
   // Deterministic first render (server + first client paint) = default set,
   // then hydrate from localStorage. Avoids hydration mismatch.
   const [pins, setPins] = useState(PRIORITY);
@@ -38,7 +41,7 @@ export default function Performance({ detail, only, showHighlights = true, showT
   // `only` = restrict to these sources (per-tab reuse); undefined = all sources.
   const onlySet = only ? new Set(only) : null;
   const rows = (detail || []).filter((r) => !onlySet || onlySet.has(r.source));
-  if (!rows.length) return <p className="muted" style={{ fontSize: 13 }}>No data for this section in the latest month.</p>;
+  if (!rows.length) return <p className="muted" style={{ fontSize: 13 }}>No data for this section in the selected month.</p>;
   const pinned = new Set(pins);
   const toggle = (m) => setPins((p) => {
     const next = p.includes(m) ? p.filter((x) => x !== m) : [...p, m];
@@ -71,7 +74,7 @@ export default function Performance({ detail, only, showHighlights = true, showT
   const Star = ({ m }) => (
     <button type="button" onClick={() => toggle(m)} title={pinned.has(m) ? "Unpin from highlights" : "Pin to highlights"}
       style={{ margin: 0, padding: "0 6px", background: "transparent", border: 0, cursor: "pointer",
-        color: pinned.has(m) ? "var(--accent)" : "var(--line)", fontSize: 14, lineHeight: 1 }}>
+        color: pinned.has(m) ? "var(--accent)" : "#c3cbdd", fontSize: 14, lineHeight: 1 }}>
       {pinned.has(m) ? "★" : "☆"}
     </button>
   );
@@ -89,6 +92,7 @@ export default function Performance({ detail, only, showHighlights = true, showT
               {highlights.map((r, i) => {
                 const d = fmtDelta(r.pct_change, r.direction);
                 const multi = Object.keys(byAcct[r.source] || {}).length > 1;
+                const trend = series?.[r.metric_name];
                 return (
                   <div className={`kpi tint c${(i % 4) + 1}`} key={`${r.source}|${r.account_ext_id}|${r.metric_name}`}>
                     <div className="v">{fmtVal(r.cur_value, r.unit)}</div>
@@ -96,6 +100,7 @@ export default function Performance({ detail, only, showHighlights = true, showT
                       {label(r.metric_name)} <span className="muted">· {SRC_LABEL[r.source] || r.source}{multi && r.brand ? ` (${r.brand})` : ""}</span>
                     </div>
                     <div className={`d delta ${d.cls}`}>{d.text} <span className="muted" style={{ fontWeight: 400 }}>MoM</span></div>
+                    {trend && !multi && <Sparkline points={trend} />}
                   </div>
                 );
               })}

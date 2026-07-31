@@ -26,8 +26,8 @@ export default function InfoDot({ title = "Where this data comes from", lines = 
       {open && (
         <div role="dialog" aria-label={title}
           style={{ position: "absolute", zIndex: 30, top: 24, left: 0, width: 340, maxWidth: "80vw",
-            background: "var(--panel2)", border: "1px solid var(--line)", borderRadius: 12,
-            padding: "12px 14px", boxShadow: "0 10px 30px rgba(0,0,0,.45)",
+            background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 12,
+            padding: "12px 14px", boxShadow: "0 10px 30px rgba(35,45,90,.16)",
             fontSize: 12, lineHeight: 1.5, textTransform: "none", letterSpacing: 0,
             color: "var(--txt)", fontWeight: 400, whiteSpace: "normal", textAlign: "left" }}>
           <div style={{ fontWeight: 700, marginBottom: 6 }}>{title}</div>

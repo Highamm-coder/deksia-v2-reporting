@@ -21,7 +21,7 @@ export default function Campaigns({ campaigns }) {
 
   return (
     <>
-      <h2>Campaigns running <span className="muted" style={{ textTransform: "none", letterSpacing: 0 }}>· latest full month, per account</span></h2>
+      <h2>Campaigns <span className="muted" style={{ textTransform: "none", letterSpacing: 0 }}>· {fmtMonth(rows[0].month_start)}, per account</span></h2>
       {sources.map((src) => {
         const accounts = Object.entries(byAcct[src])
           .sort(([, a], [, b]) => String(a.brand || a.label || "").localeCompare(String(b.brand || b.label || "")));
