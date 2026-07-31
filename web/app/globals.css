@@ -1,10 +1,11 @@
 :root {
-  /* light theme: white panels on a soft blue-grey page, violet accent */
-  --page:#e8ecf6;                 /* page behind the app panel */
-  --bg:#f4f6fb; --panel:#ffffff; --panel2:#eef1f8; --line:#e0e5f0;
-  --txt:#1b202a; --muted:#5f6a7d; --accent:#6d52e0;  /* deeper violet for contrast on white */
+  /* flat light theme (per visual direction): white sidebar + white content panel on
+     a soft grey page, violet accent, cards with hairline borders */
+  --page:#eef0f7;
+  --bg:#eef0f7; --panel:#ffffff; --panel2:#f1f3fa; --line:#e4e8f2;
+  --txt:#1a2033; --muted:#5f6a7d; --accent:#6d52e0;
+  --accent-soft:#edeafc;          /* violet tint for active states / MTD pill */
   --on:#1e8e3e; --risk:#a97600; --off:#d93025; --achieved:#3667d6; --pending:#78839a;
-  /* pastel KPI tints (bg / ink) — grey, green, yellow, purple like the reference */
   --k1:#e7ebf1; --k2:#dff0dc; --k3:#f7edc0; --k4:#e9def7; --kink:#12151a;
   --radius:16px;
 }
@@ -17,12 +18,17 @@ header { display:flex; align-items:center; gap:16px; padding:14px 24px;
 header h1 { font-size:15px; margin:0; font-weight:600; }
 header nav { display:flex; gap:14px; } header .spacer { flex:1; }
 main { padding:24px; max-width:1200px; margin:0 auto; }
-h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:26px 0 10px; }
+h2 { font-size:15px; font-weight:700; color:var(--txt); margin:24px 0 10px; }
+h2 .muted { font-weight:400; font-size:12px; }
 table { width:100%; border-collapse:collapse; background:var(--panel);
-  border:1px solid var(--line); border-radius:10px; overflow:hidden; }
-th,td { text-align:left; padding:9px 12px; border-bottom:1px solid var(--line); font-size:13px; white-space:nowrap; }
-th { color:var(--muted); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.05em; }
+  border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+th,td { text-align:left; padding:10px 12px; border-bottom:1px solid var(--line); font-size:13px; white-space:nowrap; }
+th { color:var(--muted); font-weight:600; font-size:10.5px; text-transform:uppercase; letter-spacing:.07em; background:var(--panel2); }
 tr:last-child td { border-bottom:none; } td.num { text-align:right; font-variant-numeric:tabular-nums; }
+tbody tr:hover td { background:#fafbfe; }
+/* tables inside section cards: the card is the container, drop the double frame */
+main section table { border:0; border-radius:0; background:transparent; }
+main section th { background:transparent; }
 .pill { display:inline-block; padding:2px 9px; border-radius:999px; font-size:11px; font-weight:600; text-transform:capitalize; }
 .fresh,.on_track { background:rgba(30,142,62,.12); color:var(--on); }
 .idle { background:rgba(58,124,168,.12); color:#2f6d99; }
@@ -53,26 +59,50 @@ button { background:var(--accent); color:#fff; border:0; border-radius:7px;
 .kpi.c1 { background:var(--k1); } .kpi.c2 { background:var(--k2); }
 .kpi.c3 { background:var(--k3); } .kpi.c4 { background:var(--k4); }
 
-/* ---- app shell: dark rounded panel on a light page, left sidebar ---- */
-.page { min-height:100vh; background:var(--page); padding:16px; }
-.app { display:flex; gap:0; background:var(--bg); border-radius:22px; overflow:hidden;
-  min-height:calc(100vh - 32px); box-shadow:0 12px 40px rgba(35,45,90,.10); border:1px solid #dde3f0; }
-.sidebar { width:236px; flex:none; background:var(--panel); border-right:1px solid var(--line);
-  padding:18px 14px; display:flex; flex-direction:column; gap:6px; }
-.sidebar .brand { display:flex; align-items:center; gap:10px; font-weight:700; font-size:16px;
-  padding:8px 10px 16px; }
+/* ---- app shell (flat light): white sidebar flush left, white content panel ---- */
+.page { min-height:100vh; background:var(--page); }
+.app { display:flex; gap:0; min-height:100vh; }
+.sidebar { width:264px; flex:none; background:var(--panel); border-right:1px solid var(--line);
+  padding:20px 16px 16px; display:flex; flex-direction:column; gap:5px;
+  position:sticky; top:0; height:100vh; overflow-y:auto; }
+.sidebar .brand { display:flex; align-items:center; gap:10px; font-weight:800; font-size:19px;
+  padding:2px 8px 18px; letter-spacing:-.01em; }
 .sidebar .navlink { display:flex; align-items:center; gap:11px; padding:10px 12px; border-radius:10px;
   color:var(--muted); font-size:14px; font-weight:600; text-decoration:none; }
 .sidebar .navlink:hover { background:var(--panel2); color:var(--txt); text-decoration:none; }
-.sidebar .navlink.active { background:var(--panel2); color:var(--txt); }
+.sidebar .navlink.active { background:var(--accent-soft); color:var(--accent); }
 .sidebar .navlink .ic { width:18px; text-align:center; opacity:.9; }
 .sidebar .grow { flex:1; }
-.sidebar .card-cta { background:linear-gradient(160deg,#ece6ff,#f6f4ff); border:1px solid #ded5f7;
-  border-radius:14px; padding:14px; margin-top:8px; }
-.content { flex:1; min-width:0; overflow:auto; }
-.content > main { padding:26px 30px; max-width:1180px; margin:0 auto; }
+.sidebar .card-cta { background:var(--panel2); border:1px solid var(--line);
+  border-radius:12px; padding:12px 14px; margin-top:8px; }
+.sidebar .userbox { display:flex; align-items:center; gap:10px; border-top:1px solid var(--line);
+  margin-top:10px; padding:12px 6px 2px; }
+.sidebar .userbox .av { width:36px; height:36px; border-radius:50%; background:var(--accent-soft);
+  color:var(--accent); font-weight:700; font-size:13px; display:flex; align-items:center; justify-content:center; flex:none; }
+.sidebar .userbox .who { min-width:0; flex:1; }
+.sidebar .userbox .who .nm { font-size:13px; font-weight:700; }
+.sidebar .userbox .who .em { font-size:11px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; }
+.content { flex:1; min-width:0; }
+.content > main { background:var(--panel); border:1px solid var(--line); border-radius:18px;
+  padding:26px 34px 34px; max-width:1220px; margin:18px 22px 24px; }
+/* section cards inside the content panel */
+main section { background:var(--panel); border:1px solid var(--line); border-radius:14px;
+  padding:16px 20px 18px; margin:16px 0; }
+main section > h2:first-child { margin-top:2px; }
 @media (max-width:820px){ .app{flex-direction:column} .sidebar{width:auto;flex-direction:row;
-  flex-wrap:wrap;border-right:0;border-bottom:1px solid var(--line)} .sidebar .grow{display:none} }
+  flex-wrap:wrap;border-right:0;border-bottom:1px solid var(--line);position:static;height:auto}
+  .sidebar .grow,.sidebar .userbox{display:none} .content > main{margin:10px;padding:18px} }
+
+/* highlights card + MTD pill + settings button (per visual direction) */
+.hl-card { display:flex; gap:14px; border:1px solid var(--line); border-radius:14px;
+  padding:16px 20px; margin:14px 0 6px; background:var(--panel); }
+.hl-card .ic { color:var(--accent); font-size:17px; line-height:1.4; flex:none; }
+.hl-card h2 { margin:0 0 8px; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; }
+.pill.mtd { background:var(--accent-soft); color:var(--accent); text-transform:uppercase; letter-spacing:.03em; }
+.btn-ghost { display:inline-flex; align-items:center; gap:7px; background:var(--panel); color:var(--txt);
+  border:1px solid var(--line); border-radius:10px; padding:8px 14px; font-size:13px; font-weight:600;
+  text-decoration:none; margin:0; }
+.btn-ghost:hover { background:var(--panel2); text-decoration:none; }
 
 /* ---- loading skeletons ---- */
 @keyframes skel { 0%{opacity:.45} 50%{opacity:.9} 100%{opacity:.45} }

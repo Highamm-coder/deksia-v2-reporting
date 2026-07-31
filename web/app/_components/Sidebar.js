@@ -12,7 +12,10 @@ const NAV = [
 const RECENTS_KEY = "deksia_recent_clients";
 const clientHref = (slug) => `/clients/${encodeURIComponent(slug)}`;
 
-export default function Sidebar({ clients = [], lastSync = null }) {
+export default function Sidebar({ clients = [], lastSync = null, email = null }) {
+  // display identity from the email local part: "matthew" → "Matthew"
+  const nm = email ? email.split("@")[0].replace(/[._-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : null;
+  const initials = nm ? nm.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase() : "?";
   const pathname = usePathname() || "/";
   const router = useRouter();
   const [q, setQ] = useState("");
@@ -95,11 +98,17 @@ export default function Sidebar({ clients = [], lastSync = null }) {
         <div style={{ fontWeight: 700, fontSize: 13 }}>Last sync</div>
         <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{syncTxt} · view pipeline →</div>
       </a>
-      <form action={logout} style={{ margin: 0 }}>
-        <button type="submit" className="navlink" style={{ width: "100%", background: "transparent", border: 0, margin: 0, cursor: "pointer", textAlign: "left" }}>
-          <span className="ic" aria-hidden>⏻</span>Sign out
-        </button>
-      </form>
+      <div className="userbox">
+        <span className="av" aria-hidden>{initials}</span>
+        <span className="who">
+          {nm && <span className="nm" style={{ display: "block" }}>{nm}</span>}
+          {email && <span className="em" style={{ display: "block" }}>{email}</span>}
+        </span>
+        <form action={logout} style={{ margin: 0 }}>
+          <button type="submit" title="Sign out" style={{ margin: 0, padding: "4px 8px", background: "transparent",
+            color: "var(--muted)", border: 0, cursor: "pointer", fontSize: 15 }}>⏻</button>
+        </form>
+      </div>
     </aside>
   );
 }

@@ -8,16 +8,17 @@ export default function PlatformNav({ platforms }) {
   const items = [...(platforms || []), "goals"];
   return (
     <div style={{
-      position: "sticky", top: 0, zIndex: 4, background: "var(--bg)",
-      borderBottom: "1px solid var(--line)", padding: "8px 0", margin: "6px 0 4px",
-      display: "flex", gap: 6, flexWrap: "wrap",
+      position: "sticky", top: 0, zIndex: 4, background: "var(--panel)",
+      padding: "10px 0 8px", margin: "4px 0 0",
+      display: "flex", gap: 8, flexWrap: "wrap",
     }}>
-      {items.map((p) => (
+      {items.map((p, i) => (
         <a key={p} href={`#${p}`}
           style={{
-            padding: "5px 11px", fontSize: 12, fontWeight: 600, textDecoration: "none",
-            color: "var(--txt)", background: "var(--panel2)", border: "1px solid var(--line)",
-            borderRadius: 999,
+            padding: "6px 14px", fontSize: 13, fontWeight: 600, textDecoration: "none",
+            color: i === 0 ? "var(--accent)" : "var(--txt)",
+            background: i === 0 ? "var(--accent-soft)" : "var(--panel)",
+            border: "1px solid var(--line)", borderRadius: 999,
           }}>
           {p === "goals" ? "Goals" : (LABEL[p] || p)}
         </a>

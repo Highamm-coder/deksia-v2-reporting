@@ -18,11 +18,14 @@ export default async function ClientLayout({ children, params }) {
 
   return (
     <AppShell>
-        <p className="muted"><a href="/clients">← Clients</a></p>
-        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginBottom: 8 }}>
-          <h1 style={{ margin: "4px 0" }}>{client.name || client.slug}{" "}
-            <span className="muted" style={{ fontSize: 13 }}>· {client.status} · {client.timezone}</span></h1>
-          <a href={`/clients/${encodeURIComponent(client.slug)}/settings`} className="muted" style={{ fontSize: 13 }}>⚙ Settings</a>
+        <p style={{ margin: "0 0 6px" }}><a href="/clients" style={{ fontSize: 13, fontWeight: 600 }}>← Clients</a></p>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginBottom: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <h1 style={{ margin: 0, fontSize: 28, letterSpacing: "-.01em" }}>{client.name || client.slug}</h1>
+            <span className={`pill ${client.status === "active" ? "on_track" : "pending"}`}>{client.status}</span>
+            {client.timezone && <span className="muted" style={{ fontSize: 13 }}>· {client.timezone}</span>}
+          </div>
+          <a href={`/clients/${encodeURIComponent(client.slug)}/settings`} className="btn-ghost">⚙ Settings</a>
         </div>
         {children}
     </AppShell>

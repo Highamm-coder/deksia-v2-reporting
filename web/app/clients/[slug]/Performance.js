@@ -85,7 +85,9 @@ export default function Performance({ detail, only, showHighlights = true, showT
   return (
     <>
       {showHighlights && (
-        <>
+        <div className="hl-card">
+          <span className="ic" aria-hidden>ⓘ</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
           <h2>Highlighted <span className="muted" style={{ textTransform: "none", letterSpacing: 0 }}>· {fmtMonth(curMonth)} vs prior month · pin ★ to add</span></h2>
           {highlights.length ? (
             <div className="kpis">
@@ -109,11 +111,12 @@ export default function Performance({ detail, only, showHighlights = true, showT
             <p className="muted" style={{ fontSize: 13 }}>No metrics pinned. Tap ★ on any row below to highlight it.</p>
           )}
           {missing.length > 0 && (
-            <p className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+            <p className="muted" style={{ fontSize: 12, marginTop: 6, fontStyle: "italic" }}>
               Pinned but no data yet for this client: {missing.map(label).join(", ")}.
             </p>
           )}
-        </>
+          </div>
+        </div>
       )}
 
       {showTables && perfSources.map((src) => {

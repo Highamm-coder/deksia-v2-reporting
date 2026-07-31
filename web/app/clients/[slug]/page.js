@@ -111,7 +111,7 @@ export default async function ClientDashboard({ params, searchParams }) {
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", margin: "2px 0 4px" }}>
         <MonthPicker months={months} />
         {isMtd && (
-          <span className="pill idle" title="This month is still in progress — comparisons vs the prior (full) month understate it.">
+          <span className="pill mtd" title="This month is still in progress — comparisons vs the prior (full) month understate it.">
             MTD · {mtdDays} day{mtdDays === 1 ? "" : "s"} of data
           </span>
         )}
