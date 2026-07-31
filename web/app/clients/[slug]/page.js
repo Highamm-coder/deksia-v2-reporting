@@ -2,6 +2,7 @@ import { getSupabaseServer } from "../../../lib/supabase/server";
 import Performance from "./Performance";
 import Campaigns from "./Campaigns";
 import Derived from "./Derived";
+import Events from "./Events";
 import PlatformNav from "./PlatformNav";
 import MonthPicker from "./MonthPicker";
 
@@ -30,13 +31,14 @@ const pct = (cur, prev) => (prev != null && Number(prev) !== 0 ? (Number(cur) - 
 export default async function ClientDashboard({ params, searchParams }) {
   const slug = decodeURIComponent(params.slug);
   const supabase = getSupabaseServer();
-  const [{ data: monthly }, { data: campaignsAll }, { data: goals }, { data: provRows }, { data: derivedAll }, { data: health }] = await Promise.all([
+  const [{ data: monthly }, { data: campaignsAll }, { data: goals }, { data: provRows }, { data: derivedAll }, { data: health }, { data: eventsAll }] = await Promise.all([
     supabase.from("v_client_monthly").select("*").eq("slug", slug),
     supabase.from("v_client_campaigns_all").select("*").eq("slug", slug),
     supabase.from("v_goal_scoreboard").select("*").eq("slug", slug).order("metric_name"),
     supabase.from("v_client_provenance").select("*").eq("slug", slug),
     supabase.from("v_client_derived_all").select("*").eq("slug", slug).order("label"),
     supabase.from("v_pipeline_health").select("*").eq("slug", slug).order("source"),
+    supabase.from("v_client_events").select("*").eq("slug", slug),
   ]);
 
   // ---- month selection: ?month=YYYY-MM, default = latest month with data ----
@@ -49,7 +51,8 @@ export default async function ClientDashboard({ params, searchParams }) {
   const key = (r) => `${r.source}|${r.account_ext_id}|${r.metric_name}`;
   const prevBy = {};
   (monthly || []).forEach((r) => { if (ym(r.month_start) === P) prevBy[key(r)] = r; });
-  const detail = (monthly || []).filter((r) => ym(r.month_start) === M).map((r) => {
+  // conversion_action is shown named in the Events table, not as a meaningless sum row
+  const detail = (monthly || []).filter((r) => ym(r.month_start) === M && r.metric_name !== "conversion_action").map((r) => {
     const p = prevBy[key(r)];
     return {
       ...r,
@@ -72,8 +75,9 @@ export default async function ClientDashboard({ params, searchParams }) {
     series[met] = asc.map((m) => ({ m, v: byM[m] ?? null }));
   });
 
-  // ---- campaigns + computed metrics for the selected month ----
+  // ---- campaigns + events + computed metrics for the selected month ----
   const campaigns = (campaignsAll || []).filter((r) => ym(r.month_start) === M);
+  const events = (eventsAll || []).filter((r) => ym(r.month_start) === M);
   const derived = (derivedAll || [])
     .filter((r) => ym(r.month_start) === M)
     .map((r) => {
@@ -131,6 +135,7 @@ export default async function ClientDashboard({ params, searchParams }) {
               <>
                 <Performance detail={detail} only={[p]} showHighlights={false} prov={prov} />
                 {PAID.has(p) && <Campaigns campaigns={campaigns.filter((c) => c.source === p)} />}
+                {p === "google_ads" && <Events events={events} />}
               </>
             ) : (
               <div className="card" style={{ maxWidth: "none", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
