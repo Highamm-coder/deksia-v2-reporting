@@ -3,6 +3,7 @@ import Performance from "./Performance";
 import Campaigns from "./Campaigns";
 import Derived from "./Derived";
 import PlatformNav from "./PlatformNav";
+import MonthPicker from "./MonthPicker";
 
 export const dynamic = "force-dynamic";
 const num = (v, d = 0) => (v == null ? "—" : Number(v).toLocaleString(undefined, { maximumFractionDigits: d }));
@@ -10,42 +11,140 @@ const num = (v, d = 0) => (v == null ? "—" : Number(v).toLocaleString(undefine
 const PLATFORM_ORDER = ["google_ads", "meta", "ga4", "callrail", "pages", "email", "seo", "other"];
 const PLATFORM_LABEL = { google_ads: "Google Ads", meta: "Meta", ga4: "GA4", callrail: "CallRail", pages: "Facebook Pages", email: "Email", seo: "SEO", other: "Other" };
 const PAID = new Set(["google_ads", "meta"]);
-const GOAL_STATUS_ORDER = ["off_track", "at_risk", "missed", "pending", "on_track", "achieved"];
 
-export default async function ClientDashboard({ params }) {
+const ym = (d) => String(d).slice(0, 7);
+const prevYm = (m) => {
+  const [y, mo] = m.split("-").map(Number);
+  return mo === 1 ? `${y - 1}-12` : `${y}-${String(mo - 1).padStart(2, "0")}`;
+};
+const daysInMonth = (m) => {
+  const [y, mo] = m.split("-").map(Number);
+  return new Date(y, mo, 0).getDate();
+};
+const etNowYm = () => {
+  const p = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit" }).format(new Date());
+  return p.slice(0, 7);
+};
+const pct = (cur, prev) => (prev != null && Number(prev) !== 0 ? (Number(cur) - Number(prev)) / Math.abs(Number(prev)) : null);
+
+export default async function ClientDashboard({ params, searchParams }) {
   const slug = decodeURIComponent(params.slug);
   const supabase = getSupabaseServer();
-  const [{ data: detail }, { data: campaigns }, { data: goals }, { data: provRows }, { data: derived }] = await Promise.all([
-    supabase.from("v_client_report_detail").select("*").eq("slug", slug),
-    supabase.from("v_client_campaigns").select("*").eq("slug", slug),
+  const [{ data: monthly }, { data: campaignsAll }, { data: goals }, { data: provRows }, { data: derivedAll }, { data: health }] = await Promise.all([
+    supabase.from("v_client_monthly").select("*").eq("slug", slug),
+    supabase.from("v_client_campaigns_all").select("*").eq("slug", slug),
     supabase.from("v_goal_scoreboard").select("*").eq("slug", slug).order("metric_name"),
     supabase.from("v_client_provenance").select("*").eq("slug", slug),
-    supabase.from("v_client_derived").select("*").eq("slug", slug).order("label"),
+    supabase.from("v_client_derived_all").select("*").eq("slug", slug).order("label"),
+    supabase.from("v_pipeline_health").select("*").eq("slug", slug).order("source"),
   ]);
-  // provenance keyed by source|account for the section ⓘ popovers
+
+  // ---- month selection: ?month=YYYY-MM, default = latest month with data ----
+  const months = [...new Set((monthly || []).map((r) => ym(r.month_start)))].sort().reverse();
+  const req = typeof searchParams?.month === "string" && /^\d{4}-\d{2}$/.test(searchParams.month) ? searchParams.month : null;
+  const M = req && months.includes(req) ? req : months[0];
+  const P = M ? prevYm(M) : null;
+
+  // ---- build the report rows (selected vs previous month) in the shape the tables use ----
+  const key = (r) => `${r.source}|${r.account_ext_id}|${r.metric_name}`;
+  const prevBy = {};
+  (monthly || []).forEach((r) => { if (ym(r.month_start) === P) prevBy[key(r)] = r; });
+  const detail = (monthly || []).filter((r) => ym(r.month_start) === M).map((r) => {
+    const p = prevBy[key(r)];
+    return {
+      ...r,
+      cur_month: r.month_start, cur_value: r.value, cur_days: r.day_count,
+      prev_month: p?.month_start ?? null, prev_value: p?.value ?? null, prev_days: p?.day_count ?? null,
+      pct_change: pct(r.value, p?.value),
+    };
+  });
+
+  // ---- client-level monthly series for sparklines (additive metrics only) ----
+  const sums = {};
+  (monthly || []).forEach((r) => {
+    if (r.agg !== "sum") return;
+    ((sums[r.metric_name] = sums[r.metric_name] || {})[ym(r.month_start)] ||= 0);
+    sums[r.metric_name][ym(r.month_start)] += Number(r.value || 0);
+  });
+  const asc = months.slice().reverse();
+  const series = {};
+  Object.entries(sums).forEach(([met, byM]) => {
+    series[met] = asc.map((m) => ({ m, v: byM[m] ?? null }));
+  });
+
+  // ---- campaigns + computed metrics for the selected month ----
+  const campaigns = (campaignsAll || []).filter((r) => ym(r.month_start) === M);
+  const derived = (derivedAll || [])
+    .filter((r) => ym(r.month_start) === M)
+    .map((r) => {
+      const p = (derivedAll || []).find((x) => x.derived_id === r.derived_id && ym(x.month_start) === P);
+      return {
+        ...r,
+        cur_month: r.month_start, cur_num: r.num, cur_den: r.den, cur_value: r.value,
+        prev_month: p?.month_start ?? null, prev_value: p?.value ?? null,
+        pct_change: pct(r.value, p?.value),
+      };
+    });
+
+  // ---- MTD flag: selected month is the current (incomplete) calendar month ----
+  const isMtd = M === etNowYm();
+  const mtdDays = isMtd ? Math.max(0, ...detail.map((r) => Number(r.cur_days || 0))) : null;
+
+  // ---- platforms: everything mapped OR with data; explicit empty state for gaps ----
+  const withData = new Set(detail.map((r) => r.source));
+  const mapped = new Set((health || []).map((h) => h.source));
+  const platforms = PLATFORM_ORDER.filter((p) => withData.has(p) || mapped.has(p));
+  const healthBy = {};
+  (health || []).forEach((h) => { healthBy[h.source] = h; });
+
   const prov = {};
   (provRows || []).forEach((p) => { prov[`${p.source}|${p.account_ext_id}`] = p; });
 
-  const platforms = PLATFORM_ORDER.filter((p) => (detail || []).some((r) => r.source === p));
-  const anchor = { scrollMarginTop: 60 }; // clear the sticky header/nav when jumping
+  const anchor = { scrollMarginTop: 60 };
 
   return (
     <>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", margin: "2px 0 4px" }}>
+        <MonthPicker months={months} />
+        {isMtd && (
+          <span className="pill idle" title="This month is still in progress — comparisons vs the prior (full) month understate it.">
+            MTD · {mtdDays} day{mtdDays === 1 ? "" : "s"} of data
+          </span>
+        )}
+      </div>
+
       {/* pinned highlights across all platforms */}
-      <Performance detail={detail} showTables={false} />
+      <Performance detail={detail} showTables={false} series={series} />
 
       {/* Deksia-computed formulas (e.g. Blended CPL) — clearly separated from platform numbers */}
       <Derived derived={derived} />
 
       <PlatformNav platforms={platforms} />
 
-      {platforms.map((p) => (
-        <section id={p} key={p} style={anchor}>
-          <h2 style={{ color: "var(--accent)" }}>{PLATFORM_LABEL[p] || p}</h2>
-          <Performance detail={detail} only={[p]} showHighlights={false} prov={prov} />
-          {PAID.has(p) && <Campaigns campaigns={(campaigns || []).filter((c) => c.source === p)} />}
-        </section>
-      ))}
+      {platforms.map((p) => {
+        const has = withData.has(p);
+        const h = healthBy[p];
+        return (
+          <section id={p} key={p} style={anchor}>
+            <h2 style={{ color: "var(--accent)" }}>{PLATFORM_LABEL[p] || p}</h2>
+            {has ? (
+              <>
+                <Performance detail={detail} only={[p]} showHighlights={false} prov={prov} />
+                {PAID.has(p) && <Campaigns campaigns={campaigns.filter((c) => c.source === p)} />}
+              </>
+            ) : (
+              <div className="card" style={{ maxWidth: "none", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                <span className="muted" style={{ fontSize: 13 }}>
+                  No {PLATFORM_LABEL[p] || p} data for {M}.
+                </span>
+                {h && <span className={`pill ${h.sync_status}`}>{h.sync_status?.replace("_", " ")}</span>}
+                {h?.last_metric_date && <span className="muted" style={{ fontSize: 12 }}>last data {h.last_metric_date}</span>}
+                <a href={`/clients/${encodeURIComponent(slug)}/settings`} style={{ fontSize: 12 }}>source status →</a>
+              </div>
+            )}
+          </section>
+        );
+      })}
 
       <section id="goals" style={anchor}>
         <h2 style={{ color: "var(--accent)" }}>Goals ({goals?.length ?? 0}){" "}
