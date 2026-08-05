@@ -67,7 +67,7 @@ export default async function AdminPage() {
               ))}
             </tbody>
           </table>
-        ) : <p className="muted" style={{ fontSize: 13 }}>No bug reports yet. The 🐞 button (bottom-left, every page) files them here.</p>}
+        ) : <p className="muted" style={{ fontSize: 13 }}>No bug reports yet. The 🐞 button (bottom-right, every page) files them here.</p>}
       </section>
 
       <section>

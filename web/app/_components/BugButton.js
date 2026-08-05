@@ -3,7 +3,7 @@ import { useState } from "react";
 import { usePathname } from "next/navigation";
 import { reportBug } from "../actions/bugs";
 
-// Floating bug reporter, bottom-left on every authenticated page. Captures the
+// Floating bug reporter, bottom-right on every authenticated page. Captures the
 // current path automatically; submissions land in bug_reports (admin page) and
 // email out via the notify trigger.
 export default function BugButton() {
@@ -13,9 +13,9 @@ export default function BugButton() {
   const pathname = usePathname();
 
   return (
-    <div style={{ position: "fixed", left: 18, bottom: 18, zIndex: 60 }}>
+    <div style={{ position: "fixed", right: 18, bottom: 18, zIndex: 60 }}>
       {open && (
-        <div style={{ position: "absolute", bottom: 46, left: 0, width: 320, background: "#fff",
+        <div style={{ position: "absolute", bottom: 46, right: 0, width: 320, background: "#fff",
           border: "1px solid var(--line)", borderRadius: 14, padding: "14px 16px",
           boxShadow: "0 18px 50px rgba(15,20,40,.18)" }}>
           {sent ? (
