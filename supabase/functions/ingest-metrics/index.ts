@@ -55,7 +55,18 @@ Deno.serve(async (req: Request) => {
     const { data } = await supabase.from("client_sources").select("client_id, external_id").eq("source", source);
     clientId = (data ?? []).find((r: any) => String(r.external_id).replace(/[^0-9]/g, "") === cid)?.client_id ?? null;
   }
-  if (!clientId) return json({ error: "client not resolved (need client_id, client_slug, or known cid)" }, 422);
+  if (!clientId) {
+    // A live ad account posting into the void is a silent data loss — record it and
+    // alert (deduped daily) instead of 422-ing into a log nobody reads.
+    if (body.cid) {
+      try {
+        await supabase.rpc("record_unmapped_post", {
+          p_cid: String(body.cid), p_source: source, p_rows: rows.length,
+        });
+      } catch (_e) { /* never block the response on alerting */ }
+    }
+    return json({ error: "client not resolved (need client_id, client_slug, or known cid)" }, 422);
+  }
 
   // provenance: stamp who wrote every row. Callers self-declare via body.writer;
   // fallbacks — cid-resolved bodies only come from the Google Ads Scripts, and
