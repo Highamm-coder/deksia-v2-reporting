@@ -122,7 +122,7 @@ export default async function ClientDashboard({ params, searchParams }) {
               <div key={o.id} style={{
                 flex: biz ? "1 1 100%" : "1 1 260px",
                 background: biz ? "var(--accent-soft)" : "var(--panel)",
-                border: `1px solid ${biz ? "#d8cef7" : "var(--line)"}`,
+                border: `1px solid ${biz ? "var(--line)" : "var(--line)"}`,
                 borderRadius: 14, padding: biz ? "14px 18px" : "11px 14px",
               }}>
                 <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em",
