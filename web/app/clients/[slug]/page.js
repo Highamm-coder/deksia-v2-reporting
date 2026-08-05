@@ -9,8 +9,8 @@ import MonthPicker from "./MonthPicker";
 export const dynamic = "force-dynamic";
 const num = (v, d = 0) => (v == null ? "—" : Number(v).toLocaleString(undefined, { maximumFractionDigits: d }));
 
-const PLATFORM_ORDER = ["google_ads", "meta", "ga4", "callrail", "pages", "email", "seo", "other"];
-const PLATFORM_LABEL = { google_ads: "Google Ads", meta: "Meta", ga4: "GA4", callrail: "CallRail", pages: "Facebook Pages", email: "Email", seo: "SEO", other: "Other" };
+const PLATFORM_ORDER = ["google_ads", "meta", "ga4", "callrail", "pages", "manual", "email", "seo", "other"];
+const PLATFORM_LABEL = { google_ads: "Google Ads", meta: "Meta", ga4: "GA4", callrail: "CallRail", pages: "Facebook Pages", manual: "Tracked manually", email: "Email", seo: "SEO", other: "Other" };
 const PAID = new Set(["google_ads", "meta"]);
 
 const ym = (d) => String(d).slice(0, 7);
@@ -31,7 +31,7 @@ const pct = (cur, prev) => (prev != null && Number(prev) !== 0 ? (Number(cur) - 
 export default async function ClientDashboard({ params, searchParams }) {
   const slug = decodeURIComponent(params.slug);
   const supabase = getSupabaseServer();
-  const [{ data: monthly }, { data: campaignsAll }, { data: goals }, { data: provRows }, { data: derivedAll }, { data: health }, { data: eventsAll }] = await Promise.all([
+  const [{ data: monthly }, { data: campaignsAll }, { data: goals }, { data: provRows }, { data: derivedAll }, { data: health }, { data: eventsAll }, { data: objectivesAll }] = await Promise.all([
     supabase.from("v_client_monthly").select("*").eq("slug", slug),
     supabase.from("v_client_campaigns_all").select("*").eq("slug", slug),
     supabase.from("v_goal_scoreboard").select("*").eq("slug", slug).order("metric_name"),
@@ -39,7 +39,11 @@ export default async function ClientDashboard({ params, searchParams }) {
     supabase.from("v_client_derived_all").select("*").eq("slug", slug).order("label"),
     supabase.from("v_pipeline_health").select("*").eq("slug", slug).order("source"),
     supabase.from("v_client_events").select("*").eq("slug", slug),
+    supabase.from("client_objectives").select("*, clients!inner(slug)").eq("clients.slug", slug).eq("active", true).order("kind").order("position").order("created_at"),
   ]);
+  const objectives = objectivesAll || [];
+  const goalById = {};
+  (goals || []).forEach((g) => { goalById[g.goal_id] = g; });
 
   // ---- month selection: ?month=YYYY-MM, default = latest month with data ----
   const months = [...new Set((monthly || []).map((r) => ym(r.month_start)))].sort().reverse();
@@ -108,6 +112,38 @@ export default async function ClientDashboard({ params, searchParams }) {
 
   return (
     <>
+      {/* objectives: the business goal + engagement goals, always first */}
+      {objectives.length > 0 && (
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", margin: "2px 0 14px" }}>
+          {objectives.map((o) => {
+            const lg = o.goal_id ? goalById[o.goal_id] : null;
+            const biz = o.kind === "business";
+            return (
+              <div key={o.id} style={{
+                flex: biz ? "1 1 100%" : "1 1 260px",
+                background: biz ? "var(--accent-soft)" : "var(--panel)",
+                border: `1px solid ${biz ? "#d8cef7" : "var(--line)"}`,
+                borderRadius: 14, padding: biz ? "14px 18px" : "11px 14px",
+              }}>
+                <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em",
+                  color: biz ? "var(--accent)" : "var(--muted)" }}>
+                  {biz ? "🎯 Business goal" : "Engagement goal"}
+                </div>
+                <div style={{ fontSize: biz ? 17 : 13.5, fontWeight: 700, marginTop: 3 }}>{o.title}</div>
+                {o.detail && <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{o.detail}</div>}
+                {lg && (
+                  <div style={{ marginTop: 6, display: "flex", gap: 8, alignItems: "center", fontSize: 12 }}>
+                    <span className={`pill ${lg.status}`}>{lg.status?.replace("_", " ")}</span>
+                    <span className="muted">{lg.metric_name}: {num(lg.current_value, 1)} / {num(lg.target_value, 1)}
+                      {lg.pct_to_target != null ? ` (${Math.round(lg.pct_to_target * 100)}%)` : ""}</span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", margin: "2px 0 4px" }}>
         <MonthPicker months={months} />
         {isMtd && (

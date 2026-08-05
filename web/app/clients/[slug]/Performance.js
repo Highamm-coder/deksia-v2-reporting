@@ -14,8 +14,8 @@ const LABEL = {
   key_events: "Key events", users: "Users", new_users: "New users", engagement: "Engagement",
   followers: "Followers", video_views: "Video views",
 };
-const SRC_LABEL = { google_ads: "Google Ads", meta: "Meta", ga4: "GA4", callrail: "CallRail", pages: "Facebook Pages", email: "Email", seo: "SEO", other: "Other" };
-const SRC_ORDER = ["google_ads", "meta", "ga4", "callrail", "pages", "email", "seo", "other"];
+const SRC_LABEL = { google_ads: "Google Ads", meta: "Meta", ga4: "GA4", callrail: "CallRail", pages: "Facebook Pages", manual: "Tracked manually", email: "Email", seo: "SEO", other: "Other" };
+const SRC_ORDER = ["google_ads", "meta", "ga4", "callrail", "pages", "manual", "email", "seo", "other"];
 const LS_KEY = "deksia_pinned_metrics";
 const label = (m) => LABEL[m] || m.replace(/_/g, " ");
 const prio = (m) => { const i = PRIORITY.indexOf(m); return i === -1 ? 99 : i; };
