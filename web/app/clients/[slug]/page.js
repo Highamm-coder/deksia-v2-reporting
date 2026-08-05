@@ -31,7 +31,7 @@ const pct = (cur, prev) => (prev != null && Number(prev) !== 0 ? (Number(cur) - 
 export default async function ClientDashboard({ params, searchParams }) {
   const slug = decodeURIComponent(params.slug);
   const supabase = getSupabaseServer();
-  const [{ data: monthly }, { data: campaignsAll }, { data: goals }, { data: provRows }, { data: derivedAll }, { data: health }, { data: eventsAll }, { data: objectivesAll }] = await Promise.all([
+  const [{ data: monthly }, { data: campaignsAll }, { data: goals }, { data: provRows }, { data: derivedAll }, { data: health }, { data: eventsAll }, { data: objectivesAll }, { data: drillAll }] = await Promise.all([
     supabase.from("v_client_monthly").select("*").eq("slug", slug),
     supabase.from("v_client_campaigns_all").select("*").eq("slug", slug),
     supabase.from("v_goal_scoreboard").select("*").eq("slug", slug).order("metric_name"),
@@ -40,6 +40,7 @@ export default async function ClientDashboard({ params, searchParams }) {
     supabase.from("v_pipeline_health").select("*").eq("slug", slug).order("source"),
     supabase.from("v_client_events").select("*").eq("slug", slug),
     supabase.from("client_objectives").select("*, clients!inner(slug)").eq("clients.slug", slug).eq("active", true).order("kind").order("position").order("created_at"),
+    supabase.from("v_client_campaign_drill").select("*").eq("slug", slug),
   ]);
   const objectives = objectivesAll || [];
   const goalById = {};
@@ -81,6 +82,7 @@ export default async function ClientDashboard({ params, searchParams }) {
 
   // ---- campaigns + events + computed metrics for the selected month ----
   const campaigns = (campaignsAll || []).filter((r) => ym(r.month_start) === M);
+  const drill = (drillAll || []).filter((r) => ym(r.month_start) === M);
   const events = (eventsAll || []).filter((r) => ym(r.month_start) === M);
   const derived = (derivedAll || [])
     .filter((r) => ym(r.month_start) === M)
@@ -170,7 +172,7 @@ export default async function ClientDashboard({ params, searchParams }) {
             {has ? (
               <>
                 <Performance detail={detail} only={[p]} showHighlights={false} prov={prov} />
-                {PAID.has(p) && <Campaigns campaigns={campaigns.filter((c) => c.source === p)} />}
+                {PAID.has(p) && <Campaigns campaigns={campaigns.filter((c) => c.source === p)} drill={drill.filter((d) => d.source === p)} />}
                 {p === "google_ads" && <Events events={events} />}
               </>
             ) : (
