@@ -6,18 +6,26 @@ import Sidebar from "./Sidebar";
 // latest ingest time for the live freshness card.
 export default async function AppShell({ children }) {
   const supabase = getSupabaseServer();
-  const [{ data: clients }, { data: last }, { data: auth }] = await Promise.all([
+  const [{ data: clients }, { data: last }, { data: auth }, { data: creds }] = await Promise.all([
     supabase.from("clients").select("slug, name, status").order("slug"),
     supabase.from("v_pipeline_health").select("last_ingested_at").order("last_ingested_at", { ascending: false }).limit(1),
     supabase.auth.getUser(),
+    supabase.from("connector_status").select("provider, status, expires_at"),
   ]);
   const lastSync = last?.[0]?.last_ingested_at || null;
   const email = auth?.user?.email || null;
+  // sidebar warning when any credential is expired or inside 14 days
+  let credWarning = null;
+  (creds || []).forEach((c) => {
+    const days = c.expires_at ? Math.round((new Date(c.expires_at) - Date.now()) / 864e5) : null;
+    if (c.status === "expired" || (days != null && days <= 0)) credWarning = `${c.provider} token EXPIRED`;
+    else if (days != null && days <= 14 && !credWarning) credWarning = `${c.provider} token expires in ${days}d`;
+  });
 
   return (
     <div className="page">
       <div className="app">
-        <Sidebar clients={clients || []} lastSync={lastSync} email={email} />
+        <Sidebar clients={clients || []} lastSync={lastSync} email={email} credWarning={credWarning} />
         <div className="content">
           <main>{children}</main>
         </div>

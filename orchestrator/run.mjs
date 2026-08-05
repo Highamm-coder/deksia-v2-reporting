@@ -344,6 +344,40 @@ async function main() {
 
   console.log("Ingested rows:", JSON.stringify(tally));
   console.log("Source health:", JSON.stringify(health));
+
+  // credential health self-report: ask Facebook how long the Meta token has left
+  // (debug_token introspection) and write it to connector_status for the dashboard.
+  try {
+    const statusRows = [];
+    if (META_ACCESS_TOKEN) {
+      const r = await fetchT(`https://graph.facebook.com/v21.0/debug_token?input_token=${META_ACCESS_TOKEN}&access_token=${META_ACCESS_TOKEN}`);
+      const d = (await r.json())?.data || {};
+      statusRows.push({
+        provider: "meta",
+        status: d.is_valid ? "ok" : "expired",
+        expires_at: d.expires_at ? new Date(d.expires_at * 1000).toISOString() : null,
+        detail: d.is_valid
+          ? `user token · scopes: ${(d.scopes || []).join(", ")}`
+          : (d.error?.message || "token invalid"),
+      });
+    }
+    statusRows.push({ provider: "google_oauth", status: health.ga4 && health.ga4.ok > 0 ? "ok" : "unknown",
+      expires_at: null, detail: "refresh token — no fixed expiry (dies only if revoked)" });
+    statusRows.push({ provider: "callrail", status: health.callrail && health.callrail.ok > 0 ? "ok" : "unknown",
+      expires_at: null, detail: "static API key — no fixed expiry" });
+    if (statusRows.length) {
+      await fetchT(`${SUPABASE_URL}/functions/v1/connector-status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${INGEST_TOKEN}` },
+        body: JSON.stringify({ rows: statusRows }),
+      });
+      const meta = statusRows.find((s) => s.provider === "meta");
+      if (meta?.expires_at) {
+        const days = Math.round((new Date(meta.expires_at) - Date.now()) / 864e5);
+        console.log(`Meta token: ${meta.status}, expires ${meta.expires_at.slice(0, 10)} (${days}d)`);
+      }
+    }
+  } catch (e) { console.warn("connector-status report failed:", e.message); }
   // a source where EVERY pull failed = red run (surface it, don't exit green)
   const deadSources = Object.entries(health).filter(([, h]) => h.fail > 0 && h.ok === 0).map(([k]) => k);
   if (deadSources.length) process.exitCode = 1;

@@ -12,7 +12,7 @@ const NAV = [
 const RECENTS_KEY = "deksia_recent_clients";
 const clientHref = (slug) => `/clients/${encodeURIComponent(slug)}`;
 
-export default function Sidebar({ clients = [], lastSync = null, email = null }) {
+export default function Sidebar({ clients = [], lastSync = null, email = null, credWarning = null }) {
   // display identity from the email local part: "matthew" → "Matthew"
   const nm = email ? email.split("@")[0].replace(/[._-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : null;
   const initials = nm ? nm.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase() : "?";
@@ -94,6 +94,13 @@ export default function Sidebar({ clients = [], lastSync = null, email = null })
         </a>
       ))}
       <div className="grow" />
+      {credWarning && (
+        <a href="/pipeline" style={{ textDecoration: "none", display: "block", background: "rgba(169,118,0,.10)",
+          border: "1px solid rgba(169,118,0,.35)", borderRadius: 12, padding: "10px 12px", marginBottom: 6 }}>
+          <div style={{ fontWeight: 700, fontSize: 12, color: "var(--risk)" }}>⚠ {credWarning}</div>
+          <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>view credentials →</div>
+        </a>
+      )}
       <a href="/pipeline" className="card-cta" style={{ textDecoration: "none", color: "var(--txt)" }}>
         <div style={{ fontWeight: 700, fontSize: 13 }}>Last sync</div>
         <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{syncTxt} · view pipeline →</div>
