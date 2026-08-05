@@ -569,6 +569,18 @@ async function main() {
       issue("info", `recovered:${r.slug}:${r.source}:${r.ext}`,
         `${r.slug} / ${r.source} recovered`, `${r.ext} — ${r.detail}`);
     }
+    // standing problems matter even when they aren't NEW — one aggregated line,
+    // not one email per account (dedupe means this re-notifies once a day).
+    const stillDown = unreachableActive.filter(v => v.verdict !== "newly_broken");
+    if (stillDown.length) {
+      const bySource = {};
+      stillDown.forEach(v => (bySource[v.source] = bySource[v.source] || []).push(v));
+      issue("warning", `still_down:${stillDown.map(v => v.ext).sort().join(",").slice(0, 150)}`,
+        `${stillDown.length} account${stillDown.length === 1 ? "" : "s"} still not reporting`,
+        Object.entries(bySource).map(([src, list]) =>
+          `${src} (${list.length}): ` + list.map(v => `${v.slug} ${v.ext} — ${v.detail}`).join("; ")
+        ).join("\n"));
+    }
   } catch (e) { console.warn("connection probe failed:", e.message); }
 
   // ---- error-flow alerts: email on the failures that actually matter ----
