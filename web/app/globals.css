@@ -104,6 +104,9 @@ main section > h2:first-child { margin-top:2px; }
   text-decoration:none; margin:0; }
 .btn-ghost:hover { background:var(--panel2); text-decoration:none; }
 
+/* ---- login split: video column collapses on small screens ---- */
+@media (max-width:820px){ .login-video{display:none} }
+
 /* ---- loading skeletons ---- */
 @keyframes skel { 0%{opacity:.45} 50%{opacity:.9} 100%{opacity:.45} }
 .skel { background:#e4e8f3; border-radius:10px; animation:skel 1.2s ease-in-out infinite; }
