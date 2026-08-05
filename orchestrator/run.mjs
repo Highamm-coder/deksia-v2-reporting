@@ -465,13 +465,11 @@ async function main() {
       + (gadsGaps.length ? `; google_ads gaps need MCC backfill: ${gadsGaps.map(g => g.gap_date).join(", ")}` : ""));
   } catch (e) { if (!e?.skip) console.warn("sentinel failed:", e.message); }
 
-  // Shared alert helper (deduped DB-side; never throws — alerting must not break a sync).
-  const alertFn = async (kind, subject, body, dedupeKey, hours = 24) => {
-    try {
-      await sb("rpc/send_alert", { method: "POST", body: JSON.stringify({
-        p_kind: kind, p_subject: subject, p_body: body, p_dedupe_key: dedupeKey, p_dedupe_hours: hours }) });
-    } catch (e) { console.warn(`alert(${kind}) failed:`, e.message); }
-  };
+  // Issue collector — every problem found this run goes in here, and ONE digest
+  // email goes out at the end. An outage should page you once with everything,
+  // not twelve times with fragments.
+  const issues = [];
+  const issue = (severity, key, title, detail) => issues.push({ severity, key, title, detail });
 
   // ---- connection smoke test: probe EVERY mapped account, active or not ----
   // Cheap metadata call per account. Catches two things the sync alone cannot:
@@ -558,23 +556,18 @@ async function main() {
       + ` ${opportunities.length} inactive-but-reachable, ${broken.length} newly broken`);
 
     for (const b of broken) {
-      await alertFn("connection", `🔌 ${b.slug} / ${b.source} connection BROKEN`,
-        `The ${b.source} connection for ${b.slug} (${b.ext}) stopped working.\n\nProvider says: ${b.detail}\n\n`
-        + `It was reachable on the previous probe, so this is new — likely a permission change or revoked access.`,
-        `broken:${b.slug}:${b.source}:${b.ext}`, 24);
+      issue("critical", `broken:${b.slug}:${b.source}:${b.ext}`,
+        `${b.slug} / ${b.source} connection BROKEN`,
+        `${b.ext} — ${b.detail} (was reachable on the previous probe)`);
     }
     if (opportunities.length) {
-      await alertFn("connection", `🔎 ${opportunities.length} parked account${opportunities.length === 1 ? " is" : "s are"} now reachable`,
-        `These mappings are marked INACTIVE but the smoke test can reach them — they may be parked on a stale reason `
-        + `(this is how Every Child TN stayed dark for 7 weeks):\n\n`
-        + opportunities.map(o => `• ${o.slug} / ${o.source} ${o.ext} — ${o.detail}`).join("\n")
-        + `\n\nIf one should be reporting, activate it in client_sources and backfill.`,
-        `opportunity:${opportunities.map(o => `${o.slug}:${o.ext}`).sort().join(",")}`, 72);
+      issue("info", `opportunity:${opportunities.map(o => o.ext).sort().join(",")}`,
+        `${opportunities.length} parked account${opportunities.length === 1 ? "" : "s"} now reachable`,
+        opportunities.map(o => `${o.slug} / ${o.source} ${o.ext} — ${o.detail}`).join("\n"));
     }
     for (const r of recovered) {
-      await alertFn("connection", `✅ ${r.slug} / ${r.source} connection recovered`,
-        `${r.slug} / ${r.source} (${r.ext}) is reachable again: ${r.detail}`,
-        `recovered:${r.slug}:${r.source}:${r.ext}`, 24);
+      issue("info", `recovered:${r.slug}:${r.source}:${r.ext}`,
+        `${r.slug} / ${r.source} recovered`, `${r.ext} — ${r.detail}`);
     }
   } catch (e) { console.warn("connection probe failed:", e.message); }
 
@@ -584,37 +577,28 @@ async function main() {
   try {
     // 1) a source where every pull failed
     for (const src of deadSources) {
-      await alertFn("sync_failure", `⚠ ${src} sync failed — 0 of ${health[src].fail} pulls succeeded`,
-        `Every ${src} pull failed on the ${START}..${END} run.\n\n`
-        + `Source health: ${JSON.stringify(health)}\n`
-        + `Rows ingested: ${JSON.stringify(tally)}\n\n`
-        + `Most common cause: an expired credential. Check /pipeline → Credentials.`,
-        `sync_failure:${src}`, 12);
+      issue("critical", `dead:${src}`, `${src} sync failed — every pull errored`,
+        `0 of ${health[src].fail} ${src} pulls succeeded on ${START}..${END}. Usually an expired credential.`);
     }
     // 2) partial failures worth knowing about (some accounts blocked, not all)
     for (const [src, h] of Object.entries(health)) {
       if (h.fail > 0 && h.ok > 0) {
-        await alertFn("sync_failure", `${src}: ${h.fail} of ${h.ok + h.fail} pulls failed`,
-          `Partial ${src} failure on ${START}..${END} — ${h.ok} ok, ${h.fail} failed.\n`
-          + `Usually per-account permissions rather than a dead credential.`,
-          `partial:${src}:${h.fail}`, 48);
+        issue("warning", `partial:${src}:${h.fail}`, `${src}: ${h.fail} of ${h.ok + h.fail} pulls failed`,
+          `Partial failure — usually per-account permissions rather than a dead credential.`);
       }
     }
     // 3) credential expiry warnings (read what we just wrote to connector_status)
     const creds = await sb("connector_status?select=provider,status,expires_at");
     for (const c of (creds || [])) {
       if (c.status === "expired") {
-        await alertFn("credential", `🔑 ${c.provider} credential EXPIRED`,
-          `The ${c.provider} credential is rejected by the provider. Pulls for it are failing now.\n`
-          + `Fix: mint a new token and update the GitHub secret, then re-run.`,
-          `cred_expired:${c.provider}`, 12);
+        issue("critical", `cred_expired:${c.provider}`, `${c.provider} credential EXPIRED`,
+          `Rejected by the provider — pulls for it are failing now. Mint a new token and update the GitHub secret.`);
       } else if (c.expires_at) {
         const days = Math.round((new Date(c.expires_at) - Date.now()) / 864e5);
         if (days <= 14 && days > 0) {
-          await alertFn("credential", `🔑 ${c.provider} credential expires in ${days} day${days === 1 ? "" : "s"}`,
-            `${c.provider} expires ${String(c.expires_at).slice(0, 10)}.\n`
-            + `Rotate before then to avoid a silent data gap.`,
-            `cred_expiring:${c.provider}:${days > 7 ? "14d" : days > 3 ? "7d" : "3d"}`, 72);
+          issue(days <= 3 ? "warning" : "info", `cred_expiring:${c.provider}:${days > 7 ? "14d" : days > 3 ? "7d" : "3d"}`,
+            `${c.provider} credential expires in ${days} day${days === 1 ? "" : "s"}`,
+            `Expires ${String(c.expires_at).slice(0, 10)} — rotate before then to avoid a silent gap.`);
         }
       }
     }
@@ -622,14 +606,46 @@ async function main() {
     const lastCheck = await sb("integrity_checks?select=status,gaps_found,summary&order=checked_at.desc&limit=1");
     const ic = lastCheck?.[0];
     if (ic && ic.status !== "ok") {
-      await alertFn("integrity", `📉 Data integrity: ${ic.status}`,
-        `The nightly integrity check reported "${ic.status}".\n\n`
-        + `Gap-days found: ${ic.gaps_found}\n`
-        + `Details: ${JSON.stringify(ic.summary)}\n\n`
-        + `Google Ads gaps need the MCC backfill script (push-only source).`,
-        `integrity:${ic.status}:${JSON.stringify(ic.summary?.google_ads_gaps || [])}`, 24);
+      issue(ic.status === "issues" ? "critical" : "warning",
+        `integrity:${ic.status}:${JSON.stringify(ic.summary?.google_ads_gaps || [])}`,
+        `Data integrity: ${ic.status}`,
+        `${ic.gaps_found} gap-day(s). ${JSON.stringify(ic.summary)}`);
     }
   } catch (e) { console.warn("alerting block failed:", e.message); }
+
+  // ---- one digest email for everything found this run ----
+  try {
+    if (issues.length) {
+      const rank = { critical: 0, warning: 1, info: 2 };
+      issues.sort((a, b) => rank[a.severity] - rank[b.severity]);
+      const crit = issues.filter(i => i.severity === "critical").length;
+      const warn = issues.filter(i => i.severity === "warning").length;
+      const icon = crit ? "🔴" : warn ? "🟠" : "🔵";
+      const headline = issues[0].title;
+      const subject = issues.length === 1
+        ? `${icon} Deksia pipeline: ${headline}`
+        : `${icon} Deksia pipeline: ${issues.length} issues — ${headline}${issues.length > 1 ? ` (+${issues.length - 1} more)` : ""}`;
+      const section = (sev, label) => {
+        const list = issues.filter(i => i.severity === sev);
+        return list.length ? `\n${label}\n` + list.map(i => `• ${i.title}\n  ${i.detail.replace(/\n/g, "\n  ")}`).join("\n") + "\n" : "";
+      };
+      const body = `Run ${START}..${END}${PROBE_ONLY ? " (connection test)" : ""}\n`
+        + section("critical", "CRITICAL — data is not flowing")
+        + section("warning", "WARNING — degraded")
+        + section("info", "FYI")
+        + `\nSource health: ${JSON.stringify(health)}`
+        + `\nRows ingested: ${JSON.stringify(tally)}`
+        + `\n\nPipeline health: https://deksia-v2-reporting.vercel.app/pipeline`;
+      // dedupe on the SET of issues: an unchanged outage re-notifies once a day,
+      // but any new problem changes the key and emails immediately.
+      const key = issues.map(i => i.key).sort().join("|").slice(0, 200);
+      await sb("rpc/send_alert", { method: "POST", body: JSON.stringify({
+        p_kind: "digest", p_subject: subject, p_body: body, p_dedupe_key: key, p_dedupe_hours: 24 }) });
+      console.log(`Digest: ${issues.length} issue(s) — ${crit} critical, ${warn} warning`);
+    } else {
+      console.log("Digest: nothing to report — all clear.");
+    }
+  } catch (e) { console.warn("digest failed:", e.message); }
 
   if (PROBE_ONLY) { console.log("Probe-only run complete."); return; }
   const tracked = await sb("rpc/run_goal_tracker", { method: "POST", body: JSON.stringify({}) });
