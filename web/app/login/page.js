@@ -28,12 +28,26 @@ export default function LoginPage({ searchParams }) {
         </p>
       </div>
 
-      {/* right: full-bleed brand video */}
+      {/* right: full-bleed brand video under an indigo gradient wash */}
       <div className="login-video" style={{ flex: 1, position: "relative", minWidth: 0, background: "#0b0d10" }}>
         <video autoPlay muted loop playsInline preload="auto" aria-hidden="true"
           style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}>
           <source src="https://deksia.com/hubfs/Website%20Homepage%20Loop%20v2.mp4" type="video/mp4" />
         </video>
+        {/* brand gradient overlay: periwinkle bloom upper-middle, indigo field,
+            near-black lower-left, magenta hint bottom-right */}
+        <div aria-hidden="true" style={{
+          position: "absolute", inset: 0, mixBlendMode: "multiply", opacity: 0.88,
+          background: `
+            radial-gradient(60% 42% at 55% 28%, rgba(133,172,247,.95) 0%, rgba(133,172,247,0) 62%),
+            radial-gradient(75% 65% at 12% 82%, rgba(12,10,26,.96) 0%, rgba(12,10,26,0) 62%),
+            radial-gradient(55% 50% at 96% 96%, rgba(146,44,196,.55) 0%, rgba(146,44,196,0) 60%),
+            linear-gradient(158deg, #5a58ee 0%, #4f4ade 45%, #3d33b4 100%)`,
+        }} />
+        <div aria-hidden="true" style={{
+          position: "absolute", inset: 0, mixBlendMode: "screen", opacity: 0.28,
+          background: "radial-gradient(50% 36% at 55% 30%, rgba(150,185,255,.8) 0%, rgba(150,185,255,0) 65%)",
+        }} />
       </div>
     </main>
   );
