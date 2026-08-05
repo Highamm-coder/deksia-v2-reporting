@@ -8,8 +8,8 @@ export default function LoginPage({ searchParams }) {
   return (
     <main style={{ display: "flex", minHeight: "100vh", maxWidth: "none", margin: 0, padding: 0 }}>
       {/* left: form panel */}
-      <div style={{ flex: "0 0 460px", maxWidth: "100vw", display: "flex", flexDirection: "column",
-        justifyContent: "center", padding: "48px 56px", background: "#fff" }}>
+      <div style={{ flex: "0 0 33.333%", minWidth: 380, maxWidth: "100vw", display: "flex", flexDirection: "column",
+        justifyContent: "center", padding: "48px min(6vw, 84px)", background: "#fff" }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/deksia-logo.svg" alt="DEKSIA" style={{ height: 30, width: "auto", display: "block", alignSelf: "flex-start" }} />
         <p className="muted" style={{ margin: "18px 0 8px", fontSize: 13.5 }}>
