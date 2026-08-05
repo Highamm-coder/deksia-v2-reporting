@@ -10,7 +10,8 @@ export async function runConnectionTest() {
   const { data: isAdmin } = await supabase.rpc("is_admin");
   if (!isAdmin) redirect("/pipeline?test=forbidden");
 
-  const token = process.env.GITHUB_DISPATCH_TOKEN;
+  // trim: a stray newline/space pasted into the env var yields a 401 from GitHub
+  const token = (process.env.GITHUB_DISPATCH_TOKEN || "").trim();
   if (!token) redirect("/pipeline?test=notoken");
 
   const res = await fetch(
@@ -27,5 +28,12 @@ export async function runConnectionTest() {
   );
 
   revalidatePath("/pipeline");
-  redirect(res.ok ? "/pipeline?test=started" : "/pipeline?test=failed");
+  if (res.ok) redirect("/pipeline?test=started");
+  // surface GitHub's own words — guessing at auth failures wastes everyone's time
+  let why = `${res.status}`;
+  try {
+    const body = await res.json();
+    if (body?.message) why += ` ${body.message}`;
+  } catch { /* non-JSON body */ }
+  redirect(`/pipeline?test=failed&why=${encodeURIComponent(why.slice(0, 200))}`);
 }

@@ -37,7 +37,18 @@ export default async function Pipeline({ searchParams }) {
     supabase.from("connection_probes").select("*").order("source").order("client_slug"),
     supabase.rpc("is_admin"),
   ]);
-  const testMsg = TEST_MSG[searchParams?.test];
+  let testMsg = TEST_MSG[searchParams?.test];
+  if (searchParams?.test === "failed" && searchParams?.why) {
+    const why = String(searchParams.why);
+    const hint = /401|Bad credentials/i.test(why)
+      ? " → the token is wrong or expired (re-copy it; no spaces/newlines)."
+      : /403|not accessible|Resource not accessible/i.test(why)
+        ? " → the token lacks Actions: Read and write on this repo (fine-grained tokens also need the repo explicitly selected)."
+        : /404/.test(why)
+          ? " → token can't see this repo/workflow (check repo access on the token)."
+          : "";
+    testMsg = [`GitHub said: ${why}${hint}`, "var(--off)"];
+  }
   const probeRows = probes || [];
   const probedAt = probeRows.length ? probeRows.map((p) => p.probed_at).sort().at(-1) : null;
   const unreachable = probeRows.filter((p) => p.active && !p.reachable);
