@@ -12,7 +12,7 @@ const NAV = [
 const RECENTS_KEY = "deksia_recent_clients";
 const clientHref = (slug) => `/clients/${encodeURIComponent(slug)}`;
 
-export default function Sidebar({ clients = [], lastSync = null, email = null, credWarning = null, integrity = null }) {
+export default function Sidebar({ clients = [], lastSync = null, email = null, credWarning = null, integrity = null, isAdmin = false }) {
   // display identity from the email local part: "matthew" → "Matthew"
   const nm = email ? email.split("@")[0].replace(/[._-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : null;
   const initials = nm ? nm.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase() : "?";
@@ -93,7 +93,7 @@ export default function Sidebar({ clients = [], lastSync = null, email = null, c
       </div>
 
       <div style={{ height: 8 }} />
-      {NAV.map(([href, label, ic]) => (
+      {[...NAV, ...(isAdmin ? [["/admin", "Admin", "◆"]] : [])].map(([href, label, ic]) => (
         <a key={href} href={href} className={`navlink${isActive(href) ? " active" : ""}`}>
           <span className="ic" aria-hidden>{ic}</span>{label}
         </a>

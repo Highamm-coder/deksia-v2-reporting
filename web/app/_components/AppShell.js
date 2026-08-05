@@ -1,17 +1,19 @@
 import { getSupabaseServer } from "../../lib/supabase/server";
 import Sidebar from "./Sidebar";
+import BugButton from "./BugButton";
 
 // Authenticated app frame: light page → dark rounded panel → left sidebar + content.
 // Fetches the client roster once (28 rows) to power the sidebar quick-search, and the
 // latest ingest time for the live freshness card.
 export default async function AppShell({ children }) {
   const supabase = getSupabaseServer();
-  const [{ data: clients }, { data: last }, { data: auth }, { data: creds }, { data: checks }] = await Promise.all([
+  const [{ data: clients }, { data: last }, { data: auth }, { data: creds }, { data: checks }, { data: isAdmin }] = await Promise.all([
     supabase.from("clients").select("slug, name, status").order("slug"),
     supabase.from("v_pipeline_health").select("last_ingested_at").order("last_ingested_at", { ascending: false }).limit(1),
     supabase.auth.getUser(),
     supabase.from("connector_status").select("provider, status, expires_at"),
     supabase.from("integrity_checks").select("status, checked_at").order("checked_at", { ascending: false }).limit(1),
+    supabase.rpc("is_admin"),
   ]);
   const integrity = checks?.[0] || null;
   const lastSync = last?.[0]?.last_ingested_at || null;
@@ -27,10 +29,11 @@ export default async function AppShell({ children }) {
   return (
     <div className="page">
       <div className="app">
-        <Sidebar clients={clients || []} lastSync={lastSync} email={email} credWarning={credWarning} integrity={integrity} />
+        <Sidebar clients={clients || []} lastSync={lastSync} email={email} credWarning={credWarning} integrity={integrity} isAdmin={!!isAdmin} />
         <div className="content">
           <main>{children}</main>
         </div>
+        <BugButton />
       </div>
     </div>
   );
