@@ -283,6 +283,28 @@ async function pullMeta(src) {
     const cpl = (r.cost_per_action_type || []).find(a => a.action_type === "lead");
     push("cost_per_lead", cpl ? Number(cpl.value) : null, "usd", { date: r.date_start });
   }
+
+  // 3) CAMPAIGN-level rates, exactly as Meta computes them at that grain (not derived
+  // from our ad rows). Stored with qualifier='rate' so they are a distinct grain:
+  // the metric tables exclude them (they'd pollute the account-level averages) while
+  // the campaign table shows them per campaign line.
+  const camp = await metaInsights(src.external_id,
+    "level=campaign&fields=campaign_name,ctr,cpc,cpm,frequency,reach,cost_per_action_type");
+  for (const r of camp) {
+    const name = r.campaign_name;
+    if (!name) continue;
+    const put = (metric, value, unit) => rows.push({
+      metric_name: metric, metric_date: r.date_start, value, unit,
+      account_ext_id: src.external_id, entity: name, qualifier: "rate",
+    });
+    put("ctr", toNumber(r.ctr), "pct");
+    put("cpc", toNumber(r.cpc), "usd");
+    put("cpm", toNumber(r.cpm), "usd");
+    put("frequency", toNumber(r.frequency), "ratio");
+    put("reach", toNumber(r.reach), "int");
+    const ccpl = (r.cost_per_action_type || []).find(a => a.action_type === "lead");
+    put("cost_per_lead", ccpl ? Number(ccpl.value) : null, "usd");
+  }
   return rows;
 }
 
