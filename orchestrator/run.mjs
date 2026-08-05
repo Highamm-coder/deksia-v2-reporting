@@ -362,8 +362,12 @@ async function pullWindow(sources, onlySource, tally, mark) {
   return { rows: rows_in, fails };
 }
 
+const PROBE_ONLY = process.env.PROBE_ONLY === "1" || process.env.PROBE_ONLY === "true";
+
 async function main() {
-  console.log(`Orchestrator run ${START}..${END} (America/New_York)`);
+  console.log(PROBE_ONLY
+    ? "Connection test (probe only — no pulls)"
+    : `Orchestrator run ${START}..${END} (America/New_York)`);
   const sources = await sb(
     "client_sources?select=source,external_id,params,active,clients!inner(slug,status)&active=eq.true&clients.status=eq.active"
   );
@@ -371,7 +375,7 @@ async function main() {
   const mark = (source, ok) => { const h = health[source] = health[source] || { ok: 0, fail: 0 }; ok ? h.ok++ : h.fail++; };
 
   // bounded parallelism: 5 concurrent pulls (google_ads is push-based via Ads Scripts)
-  await pullWindow(sources, null, tally, mark);
+  if (!PROBE_ONLY) await pullWindow(sources, null, tally, mark);
   // (google_ads arrives via the Google Ads Scripts POSTing directly — not pulled here)
 
   console.log("Ingested rows:", JSON.stringify(tally));
@@ -423,6 +427,7 @@ async function main() {
   // platforms genuinely report nothing), not a gap. google_ads is push-only, so
   // its gaps can only be flagged (heal = run the backfill script from the MCC).
   try {
+    if (PROBE_ONLY) throw { skip: true };
     const gaps = await sb("rpc/data_gaps", { method: "POST", body: JSON.stringify({ p_days: 14 }) });
     const healable = gaps.filter(g => g.source !== "google_ads");
     let healedRows = 0, sweepFails = 0;
@@ -458,7 +463,7 @@ async function main() {
         } }) });
     console.log(`Sentinel: ${status} — ${gaps.length} gap(s), ${healedRows} rows re-pulled`
       + (gadsGaps.length ? `; google_ads gaps need MCC backfill: ${gadsGaps.map(g => g.gap_date).join(", ")}` : ""));
-  } catch (e) { console.warn("sentinel failed:", e.message); }
+  } catch (e) { if (!e?.skip) console.warn("sentinel failed:", e.message); }
 
   // Shared alert helper (deduped DB-side; never throws — alerting must not break a sync).
   const alertFn = async (kind, subject, body, dedupeKey, hours = 24) => {
@@ -619,6 +624,7 @@ async function main() {
     }
   } catch (e) { console.warn("alerting block failed:", e.message); }
 
+  if (PROBE_ONLY) { console.log("Probe-only run complete."); return; }
   const tracked = await sb("rpc/run_goal_tracker", { method: "POST", body: JSON.stringify({}) });
   await sb("run_log", { method: "POST", headers: { Prefer: "return=minimal" },
     body: JSON.stringify({ period: START === END ? START : `${START}..${END}`,
