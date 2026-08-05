@@ -1,0 +1,13 @@
+-- 0027 (applied live 2026-08-05): alerting system.
+-- alert_config (single row): from_email + recipients[] — ONE place to change who
+--   gets alerts (and the branded sender once deksia.com verifies in Resend).
+-- alert_log: every alert with kind/dedupe_key/status (sent | skipped_duplicate |
+--   no_key | error) — an audit trail and the dedupe source.
+-- send_alert(kind, subject, body, dedupe_key, dedupe_hours): central sender via
+--   pg_net → Resend; suppresses a repeat of the same kind+key inside the window so
+--   a multi-day outage emails once a day, not once a run. Service-role only.
+-- notify_bug_report() now routes through send_alert.
+-- run.mjs fires: dead-source failures (12h dedupe), partial failures (48h),
+--   credential expired (12h) / expiring ≤14d (72h, re-alerts as it crosses 7d/3d),
+--   integrity check not clean (24h). Alerting is wrapped so it can never break a sync.
+select 1; -- marker

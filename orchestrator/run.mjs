@@ -438,6 +438,66 @@ async function main() {
       + (gadsGaps.length ? `; google_ads gaps need MCC backfill: ${gadsGaps.map(g => g.gap_date).join(", ")}` : ""));
   } catch (e) { console.warn("sentinel failed:", e.message); }
 
+  // ---- error-flow alerts: email on the failures that actually matter ----
+  // Deduped in the DB (same alert once per window) so an outage pages us daily,
+  // not every run. Alerting never throws — a broken alert must not break a sync.
+  const alert = async (kind, subject, body, dedupeKey, hours = 24) => {
+    try {
+      await sb("rpc/send_alert", { method: "POST", body: JSON.stringify({
+        p_kind: kind, p_subject: subject, p_body: body, p_dedupe_key: dedupeKey, p_dedupe_hours: hours }) });
+    } catch (e) { console.warn(`alert(${kind}) failed:`, e.message); }
+  };
+
+  try {
+    // 1) a source where every pull failed
+    for (const src of deadSources) {
+      await alert("sync_failure", `⚠ ${src} sync failed — 0 of ${health[src].fail} pulls succeeded`,
+        `Every ${src} pull failed on the ${START}..${END} run.\n\n`
+        + `Source health: ${JSON.stringify(health)}\n`
+        + `Rows ingested: ${JSON.stringify(tally)}\n\n`
+        + `Most common cause: an expired credential. Check /pipeline → Credentials.`,
+        `sync_failure:${src}`, 12);
+    }
+    // 2) partial failures worth knowing about (some accounts blocked, not all)
+    for (const [src, h] of Object.entries(health)) {
+      if (h.fail > 0 && h.ok > 0) {
+        await alert("sync_failure", `${src}: ${h.fail} of ${h.ok + h.fail} pulls failed`,
+          `Partial ${src} failure on ${START}..${END} — ${h.ok} ok, ${h.fail} failed.\n`
+          + `Usually per-account permissions rather than a dead credential.`,
+          `partial:${src}:${h.fail}`, 48);
+      }
+    }
+    // 3) credential expiry warnings (read what we just wrote to connector_status)
+    const creds = await sb("connector_status?select=provider,status,expires_at");
+    for (const c of (creds || [])) {
+      if (c.status === "expired") {
+        await alert("credential", `🔑 ${c.provider} credential EXPIRED`,
+          `The ${c.provider} credential is rejected by the provider. Pulls for it are failing now.\n`
+          + `Fix: mint a new token and update the GitHub secret, then re-run.`,
+          `cred_expired:${c.provider}`, 12);
+      } else if (c.expires_at) {
+        const days = Math.round((new Date(c.expires_at) - Date.now()) / 864e5);
+        if (days <= 14 && days > 0) {
+          await alert("credential", `🔑 ${c.provider} credential expires in ${days} day${days === 1 ? "" : "s"}`,
+            `${c.provider} expires ${String(c.expires_at).slice(0, 10)}.\n`
+            + `Rotate before then to avoid a silent data gap.`,
+            `cred_expiring:${c.provider}:${days > 7 ? "14d" : days > 3 ? "7d" : "3d"}`, 72);
+        }
+      }
+    }
+    // 4) integrity sentinel verdict (only when it isn't clean)
+    const lastCheck = await sb("integrity_checks?select=status,gaps_found,summary&order=checked_at.desc&limit=1");
+    const ic = lastCheck?.[0];
+    if (ic && ic.status !== "ok") {
+      await alert("integrity", `📉 Data integrity: ${ic.status}`,
+        `The nightly integrity check reported "${ic.status}".\n\n`
+        + `Gap-days found: ${ic.gaps_found}\n`
+        + `Details: ${JSON.stringify(ic.summary)}\n\n`
+        + `Google Ads gaps need the MCC backfill script (push-only source).`,
+        `integrity:${ic.status}:${JSON.stringify(ic.summary?.google_ads_gaps || [])}`, 24);
+    }
+  } catch (e) { console.warn("alerting block failed:", e.message); }
+
   const tracked = await sb("rpc/run_goal_tracker", { method: "POST", body: JSON.stringify({}) });
   await sb("run_log", { method: "POST", headers: { Prefer: "return=minimal" },
     body: JSON.stringify({ period: START === END ? START : `${START}..${END}`,
