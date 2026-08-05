@@ -352,12 +352,16 @@ async function main() {
     if (META_ACCESS_TOKEN) {
       const r = await fetchT(`https://graph.facebook.com/v21.0/debug_token?input_token=${META_ACCESS_TOKEN}&access_token=${META_ACCESS_TOKEN}`);
       const d = (await r.json())?.data || {};
+      // effective expiry = the sooner of session expiry and data-access expiry
+      // (expires_at can be 0 = "session never expires", but data_access_expires_at
+      // still cuts off reads ~90 days out — that's the clock that matters).
+      const clocks = [d.expires_at, d.data_access_expires_at].filter((x) => x > 0);
       statusRows.push({
         provider: "meta",
         status: d.is_valid ? "ok" : "expired",
-        expires_at: d.expires_at ? new Date(d.expires_at * 1000).toISOString() : null,
+        expires_at: clocks.length ? new Date(Math.min(...clocks) * 1000).toISOString() : null,
         detail: d.is_valid
-          ? `user token · scopes: ${(d.scopes || []).join(", ")}`
+          ? `user token${d.expires_at === 0 ? " (session non-expiring; limit is data access)" : ""} · scopes: ${(d.scopes || []).join(", ")}`
           : (d.error?.message || "token invalid"),
       });
     }
