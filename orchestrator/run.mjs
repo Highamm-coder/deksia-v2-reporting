@@ -471,10 +471,18 @@ async function main() {
       if (src === "ga4") {
         if (!GOOGLE_READY) return [false, "no GOOGLE_OAUTH_*"];
         const tok = await getGoogleToken();
-        const r = await fetchT(`https://analyticsadmin.googleapis.com/v1beta/properties/${ext}`,
-          { headers: { Authorization: `Bearer ${tok}` } }, 15000);
+        // probe with the DATA API (the one we actually pull with); the Admin API
+        // isn't enabled on this Cloud project and would give a false negative.
+        const r = await fetchT(`https://analyticsdata.googleapis.com/v1beta/properties/${ext}:runReport`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${tok}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ dateRanges: [{ startDate: "7daysAgo", endDate: "yesterday" }],
+            metrics: [{ name: "sessions" }], limit: 1 }),
+        }, 20000);
         const d = await r.json();
-        return d.error ? [false, String(d.error.message).slice(0, 160)] : [true, d.displayName || `property ${ext}`];
+        if (d.error) return [false, String(d.error.message).slice(0, 160)];
+        const n = d.rows?.[0]?.metricValues?.[0]?.value;
+        return [true, `property ${ext}${n != null ? ` · ${n} sessions/7d` : ""}`];
       }
       if (src === "callrail") {
         if (!CALLRAIL_API_KEY) return [false, "no CALLRAIL_API_KEY"];
