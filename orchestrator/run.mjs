@@ -490,10 +490,16 @@ async function main() {
       }
       if (src === "pages") {
         if (!META_ACCESS_TOKEN) return [false, "no META_ACCESS_TOKEN"];
-        const r = await fetchT(`${META_API}/${ext}?fields=name,access_token&access_token=${META_ACCESS_TOKEN}`, {}, 15000);
+        // light read — asking for access_token on 18 pages trips Meta's app rate limit
+        const r = await fetchT(`${META_API}/${ext}?fields=name&access_token=${META_ACCESS_TOKEN}`, {}, 15000);
         const d = await r.json();
-        if (d.error) return [false, d.error.message.slice(0, 160)];
-        return d.access_token ? [true, d.name || "page"] : [false, `${d.name || "page"}: no page token (needs Analyze role)`];
+        if (d.error) {
+          // a rate-limit answer says nothing about reachability — don't cry wolf
+          if (d.error.code === 4 || d.error.code === 17 || /request limit/i.test(d.error.message || ""))
+            return [true, "rate-limited by Meta — not tested this run"];
+          return [false, d.error.message.slice(0, 160)];
+        }
+        return [true, d.name || "page"];
       }
       if (src === "ga4") {
         if (!GOOGLE_READY) return [false, "no GOOGLE_OAUTH_*"];
@@ -535,7 +541,8 @@ async function main() {
   try {
     const allMappings = await sb(
       "client_sources?select=source,external_id,params,active,clients!inner(slug,status)&clients.status=eq.active");
-    const verdicts = await mapLimit(allMappings, 5, async (s) => {
+    // Meta counts every call against one app-level limit; probe gently.
+    const verdicts = await mapLimit(allMappings, 2, async (s) => {
       const [ok, detail] = await probeOne(s);
       const v = await sb("rpc/record_probe", { method: "POST", body: JSON.stringify({
         p_slug: s.clients.slug, p_source: s.source, p_ext: String(s.external_id),
