@@ -438,20 +438,111 @@ async function main() {
       + (gadsGaps.length ? `; google_ads gaps need MCC backfill: ${gadsGaps.map(g => g.gap_date).join(", ")}` : ""));
   } catch (e) { console.warn("sentinel failed:", e.message); }
 
-  // ---- error-flow alerts: email on the failures that actually matter ----
-  // Deduped in the DB (same alert once per window) so an outage pages us daily,
-  // not every run. Alerting never throws — a broken alert must not break a sync.
-  const alert = async (kind, subject, body, dedupeKey, hours = 24) => {
+  // Shared alert helper (deduped DB-side; never throws — alerting must not break a sync).
+  const alertFn = async (kind, subject, body, dedupeKey, hours = 24) => {
     try {
       await sb("rpc/send_alert", { method: "POST", body: JSON.stringify({
         p_kind: kind, p_subject: subject, p_body: body, p_dedupe_key: dedupeKey, p_dedupe_hours: hours }) });
     } catch (e) { console.warn(`alert(${kind}) failed:`, e.message); }
   };
 
+  // ---- connection smoke test: probe EVERY mapped account, active or not ----
+  // Cheap metadata call per account. Catches two things the sync alone cannot:
+  //  * an ACTIVE account that has silently become unreachable (credential/permission)
+  //  * an INACTIVE account that is now reachable — i.e. parked on a stale reason
+  //    (Every Child TN hid this way for 7 weeks)
+  async function probeOne(s) {
+    const slug = s.clients.slug, src = s.source, ext = String(s.external_id);
+    try {
+      if (src === "meta") {
+        if (!META_ACCESS_TOKEN) return [false, "no META_ACCESS_TOKEN"];
+        const r = await fetchT(`${META_API}/act_${ext.replace(/^act_/, "")}?fields=name,account_status&access_token=${META_ACCESS_TOKEN}`, {}, 15000);
+        const d = await r.json();
+        return d.error ? [false, d.error.message.slice(0, 160)]
+          : [true, `${d.name || "ad account"}${d.account_status === 1 ? "" : ` (status ${d.account_status})`}`];
+      }
+      if (src === "pages") {
+        if (!META_ACCESS_TOKEN) return [false, "no META_ACCESS_TOKEN"];
+        const r = await fetchT(`${META_API}/${ext}?fields=name,access_token&access_token=${META_ACCESS_TOKEN}`, {}, 15000);
+        const d = await r.json();
+        if (d.error) return [false, d.error.message.slice(0, 160)];
+        return d.access_token ? [true, d.name || "page"] : [false, `${d.name || "page"}: no page token (needs Analyze role)`];
+      }
+      if (src === "ga4") {
+        if (!GOOGLE_READY) return [false, "no GOOGLE_OAUTH_*"];
+        const tok = await getGoogleToken();
+        const r = await fetchT(`https://analyticsadmin.googleapis.com/v1beta/properties/${ext}`,
+          { headers: { Authorization: `Bearer ${tok}` } }, 15000);
+        const d = await r.json();
+        return d.error ? [false, String(d.error.message).slice(0, 160)] : [true, d.displayName || `property ${ext}`];
+      }
+      if (src === "callrail") {
+        if (!CALLRAIL_API_KEY) return [false, "no CALLRAIL_API_KEY"];
+        const acct = s.params?.account_id;
+        if (!acct) return [false, "no account_id in mapping"];
+        const r = await fetchT(`https://api.callrail.com/v3/a/${acct}/companies/${ext}.json`,
+          { headers: { Authorization: `Token token=${CALLRAIL_API_KEY}` } }, 15000);
+        const d = await r.json().catch(() => ({}));
+        return r.ok && !d.error ? [true, d.name || "company"] : [false, JSON.stringify(d.error || d).slice(0, 160)];
+      }
+      if (src === "google_ads") {
+        // push-based: "reachable" = the Ads Script has posted for this account recently
+        const rows = await sb(`metrics_daily?select=metric_date&source=eq.google_ads`
+          + `&account_ext_id=ilike.*${ext.replace(/\D/g, "").slice(-4)}*&order=metric_date.desc&limit=1`);
+        const last = rows?.[0]?.metric_date;
+        const fresh = last && (Date.now() - new Date(last)) < 5 * 864e5;
+        return [!!fresh, last ? `last script post ${last}` : "no data ever posted"];
+      }
+      return [true, "no probe for this source"];
+    } catch (e) { return [false, e.message.slice(0, 160)]; }
+  }
+
+  try {
+    const allMappings = await sb(
+      "client_sources?select=source,external_id,params,active,clients!inner(slug,status)&clients.status=eq.active");
+    const verdicts = await mapLimit(allMappings, 5, async (s) => {
+      const [ok, detail] = await probeOne(s);
+      const v = await sb("rpc/record_probe", { method: "POST", body: JSON.stringify({
+        p_slug: s.clients.slug, p_source: s.source, p_ext: String(s.external_id),
+        p_active: !!s.active, p_reachable: ok, p_detail: detail }) });
+      return { slug: s.clients.slug, source: s.source, ext: s.external_id, active: s.active, ok, detail, verdict: v };
+    });
+
+    const broken = verdicts.filter(v => v.verdict === "newly_broken" && v.active);
+    const opportunities = verdicts.filter(v => v.verdict === "new_reachable");
+    const recovered = verdicts.filter(v => v.verdict === "recovered" && v.active);
+    const unreachableActive = verdicts.filter(v => v.active && !v.ok);
+    console.log(`Probe: ${verdicts.length} mappings — ${unreachableActive.length} active unreachable,`
+      + ` ${opportunities.length} inactive-but-reachable, ${broken.length} newly broken`);
+
+    for (const b of broken) {
+      await alertFn("connection", `🔌 ${b.slug} / ${b.source} connection BROKEN`,
+        `The ${b.source} connection for ${b.slug} (${b.ext}) stopped working.\n\nProvider says: ${b.detail}\n\n`
+        + `It was reachable on the previous probe, so this is new — likely a permission change or revoked access.`,
+        `broken:${b.slug}:${b.source}:${b.ext}`, 24);
+    }
+    if (opportunities.length) {
+      await alertFn("connection", `🔎 ${opportunities.length} parked account${opportunities.length === 1 ? " is" : "s are"} now reachable`,
+        `These mappings are marked INACTIVE but the smoke test can reach them — they may be parked on a stale reason `
+        + `(this is how Every Child TN stayed dark for 7 weeks):\n\n`
+        + opportunities.map(o => `• ${o.slug} / ${o.source} ${o.ext} — ${o.detail}`).join("\n")
+        + `\n\nIf one should be reporting, activate it in client_sources and backfill.`,
+        `opportunity:${opportunities.map(o => `${o.slug}:${o.ext}`).sort().join(",")}`, 72);
+    }
+    for (const r of recovered) {
+      await alertFn("connection", `✅ ${r.slug} / ${r.source} connection recovered`,
+        `${r.slug} / ${r.source} (${r.ext}) is reachable again: ${r.detail}`,
+        `recovered:${r.slug}:${r.source}:${r.ext}`, 24);
+    }
+  } catch (e) { console.warn("connection probe failed:", e.message); }
+
+  // ---- error-flow alerts: email on the failures that actually matter ----
+  // Deduped in the DB (same alert once per window) so an outage pages us daily,
+  // not every run. Alerting never throws — a broken alert must not break a sync.
   try {
     // 1) a source where every pull failed
     for (const src of deadSources) {
-      await alert("sync_failure", `⚠ ${src} sync failed — 0 of ${health[src].fail} pulls succeeded`,
+      await alertFn("sync_failure", `⚠ ${src} sync failed — 0 of ${health[src].fail} pulls succeeded`,
         `Every ${src} pull failed on the ${START}..${END} run.\n\n`
         + `Source health: ${JSON.stringify(health)}\n`
         + `Rows ingested: ${JSON.stringify(tally)}\n\n`
@@ -461,7 +552,7 @@ async function main() {
     // 2) partial failures worth knowing about (some accounts blocked, not all)
     for (const [src, h] of Object.entries(health)) {
       if (h.fail > 0 && h.ok > 0) {
-        await alert("sync_failure", `${src}: ${h.fail} of ${h.ok + h.fail} pulls failed`,
+        await alertFn("sync_failure", `${src}: ${h.fail} of ${h.ok + h.fail} pulls failed`,
           `Partial ${src} failure on ${START}..${END} — ${h.ok} ok, ${h.fail} failed.\n`
           + `Usually per-account permissions rather than a dead credential.`,
           `partial:${src}:${h.fail}`, 48);
@@ -471,14 +562,14 @@ async function main() {
     const creds = await sb("connector_status?select=provider,status,expires_at");
     for (const c of (creds || [])) {
       if (c.status === "expired") {
-        await alert("credential", `🔑 ${c.provider} credential EXPIRED`,
+        await alertFn("credential", `🔑 ${c.provider} credential EXPIRED`,
           `The ${c.provider} credential is rejected by the provider. Pulls for it are failing now.\n`
           + `Fix: mint a new token and update the GitHub secret, then re-run.`,
           `cred_expired:${c.provider}`, 12);
       } else if (c.expires_at) {
         const days = Math.round((new Date(c.expires_at) - Date.now()) / 864e5);
         if (days <= 14 && days > 0) {
-          await alert("credential", `🔑 ${c.provider} credential expires in ${days} day${days === 1 ? "" : "s"}`,
+          await alertFn("credential", `🔑 ${c.provider} credential expires in ${days} day${days === 1 ? "" : "s"}`,
             `${c.provider} expires ${String(c.expires_at).slice(0, 10)}.\n`
             + `Rotate before then to avoid a silent data gap.`,
             `cred_expiring:${c.provider}:${days > 7 ? "14d" : days > 3 ? "7d" : "3d"}`, 72);
@@ -489,7 +580,7 @@ async function main() {
     const lastCheck = await sb("integrity_checks?select=status,gaps_found,summary&order=checked_at.desc&limit=1");
     const ic = lastCheck?.[0];
     if (ic && ic.status !== "ok") {
-      await alert("integrity", `📉 Data integrity: ${ic.status}`,
+      await alertFn("integrity", `📉 Data integrity: ${ic.status}`,
         `The nightly integrity check reported "${ic.status}".\n\n`
         + `Gap-days found: ${ic.gaps_found}\n`
         + `Details: ${JSON.stringify(ic.summary)}\n\n`
