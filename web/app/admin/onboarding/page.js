@@ -1,8 +1,7 @@
 import { getSupabaseServer } from "../../../lib/supabase/server";
 import AppShell from "../../_components/AppShell";
-import ScriptBlock from "../../_components/ScriptBlock";
-import { generateGoogleAdsScript } from "../../../lib/googleAdsScript";
-import { createClient, addSource, setSourceActive } from "./actions";
+import AccountBrowser from "./AccountBrowser";
+import { createClient, addSource } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -38,10 +37,6 @@ export default async function Onboarding({ searchParams }) {
 
   const err = MSG[searchParams?.err];
   const created = searchParams?.created;
-  const byClient = {};
-  (sources || []).forEach((s) => { (byClient[s.client_id] = byClient[s.client_id] || []).push(s); });
-  const probeOf = (slug, source, ext) =>
-    (probes || []).find((p) => p.client_slug === slug && p.source === source && p.external_id === ext);
 
   return (
     <AppShell>
@@ -100,70 +95,9 @@ export default async function Onboarding({ searchParams }) {
 
       <section>
         <h2>3 · Accounts &amp; scripts</h2>
-        {(clients || []).map((c) => {
-          const list = (byClient[c.id] || []);
-          if (!list.length) return null;
-          const gads = list.filter((s) => s.source === "google_ads");
-          return (
-            <div key={c.id} style={{ marginTop: 16 }}>
-              <p className="srcgroup">{c.name || c.slug}
-                <span className="muted" style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}> · {list.length} accounts</span>
-              </p>
-              <table>
-                <thead><tr><th>Platform</th><th>Account</th><th>ID</th><th>Connection</th><th></th></tr></thead>
-                <tbody>
-                  {list.map((s) => {
-                    const pr = probeOf(c.slug, s.source, String(s.external_id));
-                    return (
-                      <tr key={s.id} style={!s.active ? { opacity: 0.55 } : undefined}>
-                        <td className="muted">{SRC_LABEL[s.source] || s.source}</td>
-                        <td>{s.params?.label || "—"}{s.params?.brand ? <span className="muted" style={{ fontSize: 11 }}> · {s.params.brand}</span> : null}</td>
-                        <td className="muted" style={{ fontSize: 12 }}>{s.external_id}</td>
-                        <td>{!s.active ? <span className="pill pending">inactive</span>
-                          : pr ? <span className={`pill ${pr.reachable ? "fresh" : "off_track"}`} title={pr.detail || ""}>
-                              {pr.reachable ? "connected" : "no data"}</span>
-                          : <span className="pill pending">not tested</span>}</td>
-                        <td>
-                          <form action={setSourceActive} style={{ margin: 0 }}>
-                            <input type="hidden" name="id" value={s.id} />
-                            <input type="hidden" name="active" value={s.active ? "false" : "true"} />
-                            <button type="submit" style={{ margin: 0, padding: "5px 10px", background: "var(--panel)", color: "var(--muted)", border: "1px solid var(--line)" }}>
-                              {s.active ? "Deactivate" : "Activate"}
-                            </button>
-                          </form>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-
-              {gads.length > 0 && (
-                <div style={{ marginTop: 10 }}>
-                  <p className="muted" style={{ fontSize: 12, margin: "0 0 4px" }}>
-                    Google Ads scripts — one per account. Paste into that account&apos;s
-                    Tools → Bulk actions → Scripts → New script, replace <code>PASTE_INGEST_TOKEN</code>,
-                    Authorize → Run once → schedule Daily. Each script refuses to run in the wrong account.
-                  </p>
-                  {gads.map((s) => (
-                    <div key={s.id} style={{ marginTop: 6 }}>
-                      <span style={{ fontSize: 12.5, fontWeight: 600 }}>
-                        {s.params?.label || s.external_id}
-                        <span className="muted" style={{ fontWeight: 400 }}> · {s.external_id}
-                          {s.params?.outside_mcc ? " · outside MCC (needs this script)" : " · in MCC (covered by the nightly script)"}</span>
-                      </span>
-                      <ScriptBlock
-                        code={generateGoogleAdsScript(c.slug, c.name, String(s.external_id), s.params?.label || "")}
-                        filename={`google-ads-${c.slug}-${String(s.external_id).replace(/\D/g, "")}.js`}
-                      />
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
+        <AccountBrowser clients={clients || []} sources={sources || []} probes={probes || []} />
       </section>
+
     </AppShell>
   );
 }
