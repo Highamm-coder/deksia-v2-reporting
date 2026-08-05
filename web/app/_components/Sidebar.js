@@ -55,7 +55,12 @@ export default function Sidebar({ clients = [], lastSync = null, email = null, c
 
   return (
     <aside className="sidebar">
-      <div className="brand"><span aria-hidden style={{ color: "var(--accent)" }}>❖</span> Deksia</div>
+      <div className="brand">
+        <a href="/" style={{ display: "block", lineHeight: 0 }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/deksia-logo.svg" alt="DEKSIA" style={{ height: 20, width: "auto", display: "block" }} />
+        </a>
+      </div>
 
       <div className="side-search">
         <input
