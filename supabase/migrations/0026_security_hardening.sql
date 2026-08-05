@@ -1,0 +1,22 @@
+-- 0026 (applied live 2026-08-05): security audit remediation.
+-- Findings fixed:
+--  * anon role held SELECT on 33 tables/views (RLS was the ONLY line of defence) →
+--    all anon grants revoked; default privileges revoked. anon_table_grants = 0.
+--  * admin RPCs (is_admin, admin_list_users, admin_set_ban) + report_pack + data_gaps
+--    were anon-callable → EXECUTE revoked from anon/public, granted to authenticated
+--    only (the admin fns also re-check is_admin() internally — belt and braces).
+--  * notify_bug_report() was directly callable → EXECUTE revoked from everyone
+--    (trigger-only).
+--  * rollup materialized views were API surface → moved to a new `private` schema
+--    (not exposed by the Data API); display views stay security_invoker and read
+--    them via a private-schema grant to authenticated. refresh_rollups() follows.
+--  * legacy tables with RLS-but-no-policy (goal_targets, metric_snapshots,
+--    metrics_daily_backup_20260708) → explicit deny policies + API grants revoked.
+--  * pg_net functions revoked from anon/authenticated (extension can't SET SCHEMA;
+--    only the service role and definer triggers reach it).
+-- Verified after: authenticated reads intact (clients 28, Kellogg monthly 168,
+-- pipeline 70, campaigns 62, events 420); advisor ERRORs 0.
+-- Remaining accepted/queued: pg_net in public (extension limitation), the three
+-- admin definer fns callable by authenticated (by design, guarded internally),
+-- leaked-password protection (dashboard toggle — Matt).
+select 1; -- marker
