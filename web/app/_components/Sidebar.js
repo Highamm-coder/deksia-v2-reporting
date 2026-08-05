@@ -12,7 +12,7 @@ const NAV = [
 const RECENTS_KEY = "deksia_recent_clients";
 const clientHref = (slug) => `/clients/${encodeURIComponent(slug)}`;
 
-export default function Sidebar({ clients = [], lastSync = null, email = null, credWarning = null }) {
+export default function Sidebar({ clients = [], lastSync = null, email = null, credWarning = null, integrity = null }) {
   // display identity from the email local part: "matthew" → "Matthew"
   const nm = email ? email.split("@")[0].replace(/[._-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : null;
   const initials = nm ? nm.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase() : "?";
@@ -104,6 +104,12 @@ export default function Sidebar({ clients = [], lastSync = null, email = null, c
       <a href="/pipeline" className="card-cta" style={{ textDecoration: "none", color: "var(--txt)" }}>
         <div style={{ fontWeight: 700, fontSize: 13 }}>Last sync</div>
         <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{syncTxt} · view pipeline →</div>
+        {integrity && (
+          <div style={{ fontSize: 12, marginTop: 6, fontWeight: 600,
+            color: integrity.status === "ok" ? "var(--on)" : integrity.status === "attention" ? "var(--risk)" : "var(--off)" }}>
+            {integrity.status === "ok" ? "✓ data verified — no gaps" : integrity.status === "attention" ? "⚠ gaps need attention" : "✕ integrity issues"}
+          </div>
+        )}
       </a>
       <div className="userbox">
         <span className="av" aria-hidden>{initials}</span>

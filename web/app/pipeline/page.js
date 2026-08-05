@@ -22,14 +22,43 @@ function credPill(c) {
 
 export default async function Pipeline() {
   const supabase = getSupabaseServer();
-  const [{ data: pipeline }, { data: creds }] = await Promise.all([
+  const [{ data: pipeline }, { data: creds }, { data: checks }] = await Promise.all([
     supabase.from("v_pipeline_health").select("*").order("slug").order("source"),
     supabase.from("connector_status").select("*").order("provider"),
+    supabase.from("integrity_checks").select("*").order("checked_at", { ascending: false }).limit(1),
   ]);
   const fresh = (pipeline || []).filter((r) => r.sync_status === "fresh").length;
+  const chk = checks?.[0] || null;
+  const chkPill = chk ? (chk.status === "ok" ? "fresh" : chk.status === "attention" ? "stale" : "off_track") : "pending";
 
   return (
     <AppShell>
+      <h2>Data integrity</h2>
+      <div className="card" style={{ maxWidth: "none", display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+        {chk ? (
+          <>
+            <span className={`pill ${chkPill}`} style={{ fontSize: 12 }}>
+              {chk.status === "ok" ? "✓ verified" : chk.status === "attention" ? "⚠ attention" : "✕ issues"}
+            </span>
+            <span style={{ fontSize: 13 }}>
+              {chk.status === "ok"
+                ? `No gaps in the last ${chk.summary?.window_days ?? 14} days — every source-day present or verified with the platform.`
+                : chk.summary?.google_ads_gaps?.length
+                  ? `Google Ads missing: ${chk.summary.google_ads_gaps.join(", ")} — run the MCC backfill script for those dates.`
+                  : `${chk.summary?.sweep_failures ?? "?"} re-pull failure(s) during the gap sweep — check the run log.`}
+            </span>
+            {chk.gaps_found > 0 && chk.rows_healed > 0 && (
+              <span className="muted" style={{ fontSize: 12 }}>self-healed {chk.gaps_found} gap-day(s), {chk.rows_healed.toLocaleString()} rows re-pulled</span>
+            )}
+            <span className="muted" style={{ fontSize: 12, marginLeft: "auto" }}>
+              checked {new Date(chk.checked_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} · runs nightly
+            </span>
+          </>
+        ) : (
+          <span className="muted" style={{ fontSize: 13 }}>First integrity check runs with tonight&apos;s sync.</span>
+        )}
+      </div>
+
       <h2>Credentials</h2>
       <table>
         <thead><tr><th>Credential</th><th>Status</th><th>Expires</th><th style={{ whiteSpace: "normal" }}>Detail</th><th>Checked</th></tr></thead>

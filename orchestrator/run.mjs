@@ -39,8 +39,8 @@ function etDate(offsetDays = 0) {
   et.setDate(et.getDate() + offsetDays);
   return et.toISOString().slice(0, 10);
 }
-const START = process.env.RUN_START || process.env.RUN_DATE || etDate(-1);
-const END   = process.env.RUN_END   || process.env.RUN_DATE || etDate(-1);
+let START = process.env.RUN_START || process.env.RUN_DATE || etDate(-1);
+let END   = process.env.RUN_END   || process.env.RUN_DATE || etDate(-1);
 
 // ---- helpers ----
 // fetch with a 30s timeout — fail fast instead of hanging a scheduled run
@@ -321,25 +321,35 @@ async function pullPages(src) {
 // to ingest-metrics, so there's nothing to pull here and no Ledger sheet to read/fill.
 // See orchestrator/google-ads-mcc-script.js and google-ads-account-script.js.
 
+const PULLERS = { callrail: pullCallRail, ga4: pullGA4, meta: pullMeta, pages: pullPages };
+
+// Pull + ingest for a set of client_sources rows (optionally one source only).
+// Used by the main run and by the integrity sentinel's gap sweeps.
+async function pullWindow(sources, onlySource, tally, mark) {
+  let fails = 0, rows_in = 0;
+  await mapLimit(sources.filter(s => PULLERS[s.source] && (!onlySource || s.source === onlySource)), 5, async (s) => {
+    const src = { ...s, slug: s.clients.slug };
+    try {
+      const rows = await PULLERS[src.source](src);
+      const n = await ingest(src.source, src.slug, rows.filter(r => r.value != null));
+      rows_in += n;
+      if (tally) tally[src.source] = (tally[src.source] || 0) + n;
+      if (mark) mark(src.source, true);
+    } catch (e) { console.error(`  ! ${src.slug}/${src.source}: ${e.message}`); fails++; if (mark) mark(src.source, false); }
+  });
+  return { rows: rows_in, fails };
+}
+
 async function main() {
   console.log(`Orchestrator run ${START}..${END} (America/New_York)`);
   const sources = await sb(
     "client_sources?select=source,external_id,params,active,clients!inner(slug,status)&active=eq.true&clients.status=eq.active"
   );
-  const PULLERS = { callrail: pullCallRail, ga4: pullGA4, meta: pullMeta, pages: pullPages };
   const tally = {}, health = {}; // health[source] = {ok, fail}
   const mark = (source, ok) => { const h = health[source] = health[source] || { ok: 0, fail: 0 }; ok ? h.ok++ : h.fail++; };
 
-  // bounded parallelism: 5 concurrent pulls (google_ads comes from the Ledger sheet below)
-  await mapLimit(sources.filter(s => PULLERS[s.source]), 5, async (s) => {
-    const src = { ...s, slug: s.clients.slug };
-    try {
-      const rows = await PULLERS[src.source](src);
-      const n = await ingest(src.source, src.slug, rows.filter(r => r.value != null));
-      tally[src.source] = (tally[src.source] || 0) + n;
-      mark(src.source, true);
-    } catch (e) { console.error(`  ! ${src.slug}/${src.source}: ${e.message}`); mark(src.source, false); }
-  });
+  // bounded parallelism: 5 concurrent pulls (google_ads is push-based via Ads Scripts)
+  await pullWindow(sources, null, tally, mark);
   // (google_ads arrives via the Google Ads Scripts POSTing directly — not pulled here)
 
   console.log("Ingested rows:", JSON.stringify(tally));
@@ -385,6 +395,49 @@ async function main() {
   // a source where EVERY pull failed = red run (surface it, don't exit green)
   const deadSources = Object.entries(health).filter(([, h]) => h.fail > 0 && h.ok === 0).map(([k]) => k);
   if (deadSources.length) process.exitCode = 1;
+  // ---- integrity sentinel: detect gaps in the last 14 days and self-heal ----
+  // Any (source, day) with zero rows across the whole book gets re-pulled on the
+  // spot. A day that re-pulls cleanly but stays empty is "verified empty" (the
+  // platforms genuinely report nothing), not a gap. google_ads is push-only, so
+  // its gaps can only be flagged (heal = run the backfill script from the MCC).
+  try {
+    const gaps = await sb("rpc/data_gaps", { method: "POST", body: JSON.stringify({ p_days: 14 }) });
+    const healable = gaps.filter(g => g.source !== "google_ads");
+    let healedRows = 0, sweepFails = 0;
+    if (healable.length) {
+      console.log(`Sentinel: ${gaps.length} gap-day(s) found, ${healable.length} healable — sweeping...`);
+      const bySource = {};
+      healable.forEach(g => (bySource[g.source] = bySource[g.source] || []).push(g.gap_date));
+      for (const [srcName, dates] of Object.entries(bySource)) {
+        dates.sort();
+        let i = 0;
+        while (i < dates.length) {
+          let j = i; // batch contiguous days into one pull window
+          while (j + 1 < dates.length && new Date(dates[j + 1]) - new Date(dates[j]) === 864e5) j++;
+          START = dates[i]; END = dates[j];
+          console.log(`Sentinel sweep: ${srcName} ${START}..${END}`);
+          const r = await pullWindow(sources, srcName, null, null);
+          healedRows += r.rows; sweepFails += r.fails;
+          i = j + 1;
+        }
+      }
+    }
+    const remaining = healable.length || gaps.length
+      ? await sb("rpc/data_gaps", { method: "POST", body: JSON.stringify({ p_days: 14 }) }) : [];
+    const gadsGaps = remaining.filter(g => g.source === "google_ads");
+    const verifiedEmpty = remaining.filter(g => g.source !== "google_ads");
+    const status = sweepFails > 0 ? "issues" : gadsGaps.length ? "attention" : "ok";
+    await sb("integrity_checks", { method: "POST", headers: { Prefer: "return=minimal" },
+      body: JSON.stringify({ status, gaps_found: gaps.length, rows_healed: healedRows,
+        summary: {
+          window_days: 14, sweep_failures: sweepFails,
+          google_ads_gaps: gadsGaps.map(g => g.gap_date),
+          verified_empty: verifiedEmpty.map(g => `${g.source} ${g.gap_date}`),
+        } }) });
+    console.log(`Sentinel: ${status} — ${gaps.length} gap(s), ${healedRows} rows re-pulled`
+      + (gadsGaps.length ? `; google_ads gaps need MCC backfill: ${gadsGaps.map(g => g.gap_date).join(", ")}` : ""));
+  } catch (e) { console.warn("sentinel failed:", e.message); }
+
   const tracked = await sb("rpc/run_goal_tracker", { method: "POST", body: JSON.stringify({}) });
   await sb("run_log", { method: "POST", headers: { Prefer: "return=minimal" },
     body: JSON.stringify({ period: START === END ? START : `${START}..${END}`,
