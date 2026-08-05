@@ -35,7 +35,8 @@ export default async function AdminPage() {
     <AppShell>
       <h1 style={{ fontSize: 24, margin: "0 0 4px" }}>Admin</h1>
       <p className="muted" style={{ margin: "0 0 10px", fontSize: 13 }}>
-        Users, access, and bug reports. Credential health lives on <a href="/pipeline">Pipeline health</a>.
+        Users, access, and bug reports. <a href="/admin/onboarding">Client onboarding →</a> ·
+        credential health on <a href="/pipeline">Pipeline health</a>.
       </p>
 
       <section>
