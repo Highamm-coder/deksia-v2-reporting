@@ -24,7 +24,7 @@ const prio = (m) => { const i = PRIORITY.indexOf(m); return i === -1 ? 99 : i; }
 // v_client_provenance; renders an ⓘ popover on each section header.
 // `series` (optional): map metric_name → [{m,v}] client-level monthly series (additive
 // metrics only) for sparklines on the highlight cards.
-export default function Performance({ detail, only, showHighlights = true, showTables = true, prov = null, series = null }) {
+export default function Performance({ detail, only, showHighlights = true, showTables = true, prov = null, series = null, mtdDays = null }) {
   // Deterministic first render (server + first client paint) = default set,
   // then hydrate from localStorage. Avoids hydration mismatch.
   const [pins, setPins] = useState(PRIORITY);
@@ -88,7 +88,8 @@ export default function Performance({ detail, only, showHighlights = true, showT
         <div className="hl-card">
           <span className="ic" aria-hidden>ⓘ</span>
           <div style={{ flex: 1, minWidth: 0 }}>
-          <h2>Highlighted <span className="muted" style={{ textTransform: "none", letterSpacing: 0 }}>· {fmtMonth(curMonth)} vs prior month · pin ★ to add</span></h2>
+          <h2>Highlighted <span className="muted" style={{ textTransform: "none", letterSpacing: 0 }}>
+            · {fmtMonth(curMonth)} {mtdDays ? `(first ${mtdDays} days) vs the same ${mtdDays} days last month` : "vs prior month"} · pin ★ to add</span></h2>
           {highlights.length ? (
             <div className="kpis">
               {highlights.map((r, i) => {

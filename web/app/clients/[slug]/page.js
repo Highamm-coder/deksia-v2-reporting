@@ -52,10 +52,29 @@ export default async function ClientDashboard({ params, searchParams }) {
   const M = req && months.includes(req) ? req : months[0];
   const P = M ? prevYm(M) : null;
 
+  // ---- MTD? then compare like-for-like ----
+  // An in-progress month must not be compared to a FULL prior month; use the same
+  // number of elapsed days from the prior month instead.
+  const isMtd = M === etNowYm();
+  const elapsed = isMtd
+    ? Math.max(0, ...(monthly || []).filter((r) => ym(r.month_start) === M).map((r) => Number(r.day_count || 0)))
+    : null;
+  let prevPartial = null;
+  if (isMtd && elapsed > 0 && P) {
+    const { data } = await supabase.rpc("client_prev_partial", {
+      p_slug: slug, p_prev_month: P, p_days: elapsed,
+    });
+    prevPartial = data || [];
+  }
+
   // ---- build the report rows (selected vs previous month) in the shape the tables use ----
   const key = (r) => `${r.source}|${r.account_ext_id}|${r.metric_name}`;
   const prevBy = {};
-  (monthly || []).forEach((r) => { if (ym(r.month_start) === P) prevBy[key(r)] = r; });
+  if (prevPartial) {
+    prevPartial.forEach((r) => { prevBy[key(r)] = { value: r.value, day_count: r.day_count, month_start: `${P}-01` }; });
+  } else {
+    (monthly || []).forEach((r) => { if (ym(r.month_start) === P) prevBy[key(r)] = r; });
+  }
   // conversion_action is shown named in the Events table, not as a meaningless sum row
   const detail = (monthly || []).filter((r) => ym(r.month_start) === M && r.metric_name !== "conversion_action").map((r) => {
     const p = prevBy[key(r)];
@@ -97,8 +116,7 @@ export default async function ClientDashboard({ params, searchParams }) {
     });
 
   // ---- MTD flag: selected month is the current (incomplete) calendar month ----
-  const isMtd = M === etNowYm();
-  const mtdDays = isMtd ? Math.max(0, ...detail.map((r) => Number(r.cur_days || 0))) : null;
+  const mtdDays = elapsed;
 
   // ---- platforms: everything mapped OR with data; explicit empty state for gaps ----
   const withData = new Set(detail.map((r) => r.source));
@@ -149,14 +167,14 @@ export default async function ClientDashboard({ params, searchParams }) {
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", margin: "2px 0 4px" }}>
         <MonthPicker months={months} />
         {isMtd && (
-          <span className="pill mtd" title="This month is still in progress — comparisons vs the prior (full) month understate it.">
-            MTD · {mtdDays} day{mtdDays === 1 ? "" : "s"} of data
+          <span className="pill mtd" title={`Month in progress. MoM compares these ${mtdDays} days against the first ${mtdDays} days of the prior month — like for like.`}>
+            MTD · {mtdDays} day{mtdDays === 1 ? "" : "s"} · vs same {mtdDays} days last month
           </span>
         )}
       </div>
 
       {/* pinned highlights across all platforms */}
-      <Performance detail={detail} showTables={false} series={series} />
+      <Performance detail={detail} showTables={false} series={series} mtdDays={mtdDays} />
 
       {/* Deksia-computed formulas (e.g. Blended CPL) — clearly separated from platform numbers */}
       <Derived derived={derived} />
@@ -171,7 +189,7 @@ export default async function ClientDashboard({ params, searchParams }) {
             <h2 style={{ color: "var(--accent)" }}>{PLATFORM_LABEL[p] || p}</h2>
             {has ? (
               <>
-                <Performance detail={detail} only={[p]} showHighlights={false} prov={prov} />
+                <Performance detail={detail} only={[p]} showHighlights={false} prov={prov} mtdDays={mtdDays} />
                 {PAID.has(p) && <Campaigns campaigns={campaigns.filter((c) => c.source === p)} drill={drill.filter((d) => d.source === p)} />}
                 {p === "google_ads" && <Events events={events} />}
               </>
