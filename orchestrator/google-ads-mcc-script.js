@@ -78,6 +78,69 @@ function postAccountDay_(acct, cid, day) {
     rows.push({ metric_name: "conversions", metric_date: day, account_ext_id: cid, entity: cname, qualifier: ctype, value: Number(m3.conversions || 0), unit: "int", meta: { ctype: ctype } });
   }
 
+
+  // ---- Meta parity: campaign-level RATES exactly as Google computes them ----
+  // qualifier='rate' marks a distinct grain: these never mix with the ad-group
+  // counts above (the views exclude them from sums) and drive the campaign table's
+  // CTR / CPC / CPM columns, same as Meta.
+  var qr = "SELECT campaign.name, metrics.ctr, metrics.average_cpc, metrics.average_cpm, " +
+           "metrics.average_cost, metrics.cost_per_conversion, metrics.conversions_value, " +
+           "metrics.interaction_rate, metrics.search_impression_share, " +
+           "metrics.absolute_top_impression_percentage " +
+           "FROM campaign WHERE segments.date = '" + day + "' AND metrics.impressions > 0";
+  var ir = AdsApp.search(qr);
+  while (ir.hasNext()) {
+    var rr = ir.next(), mr = rr.metrics || {}, rn = rr.campaign.name;
+    var putR = function (metric, value, unit) {
+      if (value === null || value === undefined) return;
+      rows.push({ metric_name: metric, metric_date: day, account_ext_id: cid,
+        entity: rn, qualifier: "rate", value: Number(value), unit: unit });
+    };
+    putR("ctr", mr.ctr != null ? Number(mr.ctr) * 100 : null, "pct"); // Google returns a ratio
+    putR("cpc", mr.averageCpc != null ? Number(mr.averageCpc) / 1e6 : null, "usd");
+    putR("cpm", mr.averageCpm != null ? Number(mr.averageCpm) / 1e6 : null, "usd");
+    putR("cost_per_conversion", mr.costPerConversion != null ? Number(mr.costPerConversion) / 1e6 : null, "usd");
+    putR("conversions_value", mr.conversionsValue, "usd");
+    putR("interaction_rate", mr.interactionRate != null ? Number(mr.interactionRate) * 100 : null, "pct");
+    putR("impression_share", mr.searchImpressionShare != null ? Number(mr.searchImpressionShare) * 100 : null, "pct");
+    putR("top_impression_pct", mr.absoluteTopImpressionPercentage != null ? Number(mr.absoluteTopImpressionPercentage) * 100 : null, "pct");
+  }
+
+  // ---- ACCOUNT-level rates (entity='' qualifier='') — mirrors Meta's account grain ----
+  var qacc = "SELECT metrics.ctr, metrics.average_cpc, metrics.average_cpm, metrics.cost_per_conversion " +
+             "FROM customer WHERE segments.date = '" + day + "'";
+  var iacc = AdsApp.search(qacc);
+  while (iacc.hasNext()) {
+    var ra = iacc.next(), ma = ra.metrics || {};
+    var putA = function (metric, value, unit) {
+      if (value === null || value === undefined) return;
+      rows.push({ metric_name: metric, metric_date: day, account_ext_id: cid,
+        entity: "", qualifier: "", value: Number(value), unit: unit });
+    };
+    putA("ctr", ma.ctr != null ? Number(ma.ctr) * 100 : null, "pct");
+    putA("cpc", ma.averageCpc != null ? Number(ma.averageCpc) / 1e6 : null, "usd");
+    putA("cpm", ma.averageCpm != null ? Number(ma.averageCpm) / 1e6 : null, "usd");
+    putA("cost_per_conversion", ma.costPerConversion != null ? Number(ma.costPerConversion) / 1e6 : null, "usd");
+  }
+
+  // ---- AD-level counts for the drill-down (Meta shows ad set > ad; this gives
+  // ad group > ad). qualifier is prefixed 'ad:' so these are a separate grain and
+  // are excluded from campaign/account sums — the ad-group rows remain the
+  // authoritative counts, exactly as they have been all year.
+  var qad = "SELECT campaign.name, ad_group.name, ad_group_ad.ad.name, ad_group_ad.ad.type, " +
+            "metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions " +
+            "FROM ad_group_ad WHERE segments.date = '" + day + "' AND metrics.impressions > 0";
+  var iad = AdsApp.search(qad);
+  while (iad.hasNext()) {
+    var ad = iad.next(), ma2 = ad.metrics || {};
+    var adName = (ad.adGroupAd && ad.adGroupAd.ad && (ad.adGroupAd.ad.name || ad.adGroupAd.ad.type)) || "(unnamed ad)";
+    var q = "ad:" + ((ad.adGroup && ad.adGroup.name) || "") + " \u203a " + adName;
+    rows.push({ metric_name: "impressions", metric_date: day, account_ext_id: cid, entity: ad.campaign.name, qualifier: q, value: Number(ma2.impressions || 0), unit: "int" });
+    rows.push({ metric_name: "clicks",      metric_date: day, account_ext_id: cid, entity: ad.campaign.name, qualifier: q, value: Number(ma2.clicks || 0), unit: "int" });
+    rows.push({ metric_name: "spend",       metric_date: day, account_ext_id: cid, entity: ad.campaign.name, qualifier: q, value: Number(ma2.costMicros || 0) / 1e6, unit: "usd" });
+    rows.push({ metric_name: "conversions", metric_date: day, account_ext_id: cid, entity: ad.campaign.name, qualifier: q, value: Number(ma2.conversions || 0), unit: "int" });
+  }
+
   var qb = "SELECT campaign.name, segments.conversion_action_name, metrics.conversions " +
            "FROM campaign WHERE segments.date = '" + day + "' AND metrics.conversions > 0";
   var ib = AdsApp.search(qb);

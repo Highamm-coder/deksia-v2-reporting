@@ -41,6 +41,10 @@ export default function Campaigns({ campaigns, drill }) {
           const multi = accounts.length > 1;
           // rate columns only where the platform reports them at campaign grain (Meta)
           const hasRates = list.some((r) => r.ctr != null || r.cpc != null);
+          const hasReach = list.some((r) => r.reach != null);
+          const hasCPA = list.some((r) => r.cost_per_conversion != null);
+          const hasIS = list.some((r) => r.impression_share != null);
+          const rateCols = 3 + (hasReach ? 1 : 0) + (hasCPA ? 1 : 0) + (hasIS ? 1 : 0);
           return (
             <div key={`${src}|${acctId}`} style={{ marginTop: 14 }}>
               <p className="srcgroup">
@@ -56,7 +60,10 @@ export default function Campaigns({ campaigns, drill }) {
                   <th className="num">Impressions</th>
                   <th className="num">Clicks</th>
                   <th className="num">{rk === "conversions" ? "Conv." : "Leads"}</th>
-                  {hasRates && <><th className="num">CTR</th><th className="num">CPC</th><th className="num">CPM</th><th className="num">Reach</th></>}
+                  {hasRates && <><th className="num">CTR</th><th className="num">CPC</th><th className="num">CPM</th>
+                    {hasReach && <th className="num">Reach</th>}
+                    {hasCPA && <th className="num">Cost / conv.</th>}
+                    {hasIS && <th className="num">Impr. share</th>}</>}
                 </tr></thead>
                 <tbody>
                   {list.map((r) => {
@@ -66,7 +73,7 @@ export default function Campaigns({ campaigns, drill }) {
                     return [
                       <tr key={key} onClick={() => kids.length && setOpen((o) => ({ ...o, [key]: !o[key] }))}
                         style={kids.length ? { cursor: "pointer" } : undefined}
-                        title={kids.length ? `${kids.length} ${src === "meta" ? "ads" : "ad groups"}` : "no finer grain available"}>
+                        title={kids.length ? `${kids.length} ${kids[0]?.is_ad_level ? "ads" : src === "meta" ? "ads" : "ad groups"}` : "no finer grain available"}>
                         <td className="muted" style={{ fontSize: 11 }}>{kids.length ? (isOpen ? "▾" : "▸") : ""}</td>
                         <td style={{ whiteSpace: "normal" }}>{r.campaign}</td>
                         <td className="num">{fmtVal(r.spend, "usd")}</td>
@@ -77,7 +84,9 @@ export default function Campaigns({ campaigns, drill }) {
                           <td className="num">{r.ctr == null ? "—" : fmtVal(r.ctr, "pct")}</td>
                           <td className="num">{r.cpc == null ? "—" : fmtVal(r.cpc, "usd")}</td>
                           <td className="num">{r.cpm == null ? "—" : fmtVal(r.cpm, "usd")}</td>
-                          <td className="num">{r.reach == null ? "—" : fmtVal(r.reach, "int")}</td>
+                          {hasReach && <td className="num">{r.reach == null ? "—" : fmtVal(r.reach, "int")}</td>}
+                          {hasCPA && <td className="num">{r.cost_per_conversion == null ? "—" : fmtVal(r.cost_per_conversion, "usd")}</td>}
+                          {hasIS && <td className="num">{r.impression_share == null ? "—" : fmtVal(r.impression_share, "pct")}</td>}
                         </>}
                       </tr>,
                       ...(isOpen ? kids.map((d, i) => (
@@ -95,7 +104,7 @@ export default function Campaigns({ campaigns, drill }) {
                           <td className="num" style={{ fontSize: 12 }}>{fmtVal(d.impressions, "int")}</td>
                           <td className="num" style={{ fontSize: 12 }}>{fmtVal(d.clicks, "int")}</td>
                           <td className="num" style={{ fontSize: 12 }}>{d[rk] == null ? "—" : fmtVal(d[rk], "int")}</td>
-                          {hasRates && <td className="muted" colSpan={4} style={{ fontSize: 11, textAlign: "right" }}>rates reported at campaign level</td>}
+                          {hasRates && <td className="muted" colSpan={rateCols} style={{ fontSize: 11, textAlign: "right" }}>rates reported at campaign level</td>}
                         </tr>
                       )) : []),
                     ];
@@ -107,7 +116,7 @@ export default function Campaigns({ campaigns, drill }) {
                     <td className="num">{fmtVal(tot.impressions, "int")}</td>
                     <td className="num">{fmtVal(tot.clicks, "int")}</td>
                     <td className="num">{fmtVal(tot.results, "int")}</td>
-                    {hasRates && <td colSpan={4}></td>}
+                    {hasRates && <td colSpan={rateCols}></td>}
                   </tr>
                 </tbody>
               </table>
