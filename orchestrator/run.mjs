@@ -94,14 +94,28 @@ async function ingest(source, clientSlug, rows) {
   const CHUNK = 1500;
   let total = 0;
   for (let i = 0; i < rows.length; i += CHUNK) {
-    const res = await fetchT(`${SUPABASE_URL}/functions/v1/ingest-metrics`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${INGEST_TOKEN}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ source, client_slug: clientSlug, writer: "github-actions/run.mjs", rows: rows.slice(i, i + CHUNK) }),
-    }, 60000);
-    const out = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(`ingest ${clientSlug}/${source}: ${JSON.stringify(out)}`);
-    total += out.rows_upserted ?? 0;
+    const body = JSON.stringify({ source, client_slug: clientSlug,
+      writer: "github-actions/run.mjs", rows: rows.slice(i, i + CHUNK) });
+    // Retry transient server-side failures. Long backfills reliably meet them
+    // (a Vault/token lookup or upsert timing out under concurrent load returns 5xx),
+    // and losing a whole month's chunk to one blip is not acceptable.
+    let out, lastErr;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const res = await fetchT(`${SUPABASE_URL}/functions/v1/ingest-metrics`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${INGEST_TOKEN}`, "Content-Type": "application/json" },
+          body,
+        }, 60000);
+        out = await res.json().catch(() => ({}));
+        if (res.ok) { lastErr = null; break; }
+        lastErr = new Error(`ingest ${clientSlug}/${source}: ${res.status} ${JSON.stringify(out)}`);
+        if (res.status < 500) break;                    // 4xx is our bug — don't retry
+      } catch (e) { lastErr = e; }
+      if (attempt < 3) await new Promise(r => setTimeout(r, attempt * 2000));
+    }
+    if (lastErr) throw lastErr;
+    total += out?.rows_upserted ?? 0;
   }
   return total;
 }
