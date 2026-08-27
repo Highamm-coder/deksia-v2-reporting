@@ -51,7 +51,7 @@ Counts sum; rates do not. That rule governs this whole document.
 | actions: purchase, add_to_cart, initiate_checkout, complete_registration, contact, submit_application, schedule, subscribe, start_trial, landing_page_view, video_view, post_engagement, page_engagement, like, comment, share, photo_view, rsvp | ad / campaign | ✅ pulling — every action type under act_<type> |
 | action_values / conversion_values | ad / campaign | ✅ pulling — actval_<type> |
 | cost_per_action_type (per action) | campaign / account | ✅ pulling — cost_per_lead + cpa_<type> |
-| purchase_roas / website_purchase_roas | campaign | ➕ recommend for e-comm clients |
+| purchase_roas / website_purchase_roas | campaign | ✅ pulling (null unless the client sends purchase values) |
 | unique_actions | campaign | ○ available |
 | cross-device / offline conversions | campaign | ○ available (needs setup per client) |
 
@@ -78,8 +78,8 @@ Counts sum; rates do not. That rule governs this whole document.
 |---|---|
 | publisher_platform (FB / IG / Audience Network / Messenger) | ✅ pulling (brk: grain) |
 | platform_position (feed, story, reels, …) | ✅ pulling (brk: grain) |
-| impression_device / device_platform | ➕ recommend |
-| age, gender | ➕ recommend (demographics reporting) |
+| impression_device / device_platform | ✅ pulling (brk:device) |
+| age, gender | ✅ pulling (brk:demo) |
 | country / region / DMA | ○ available |
 | hourly (by time of day) | ○ available |
 | action_type / action_destination | ➕ (comes with storing all actions) |
@@ -149,7 +149,7 @@ title/thumbnail, ad status, budget & bid — ○ available, useful for context c
 | Metric | Grain | Status |
 |---|---|---|
 | historical_quality_score | keyword | ✅ pulling |
-| historical_creative_quality_score / landing_page / expected_ctr | keyword | ➕ recommend |
+| historical_creative_quality_score / landing_page / expected_ctr | keyword | ✅ pulling (enum strings in meta) |
 
 ### Dimensions we don't report on yet (each is a new GAQL resource)
 | Resource | What it gives | Status |

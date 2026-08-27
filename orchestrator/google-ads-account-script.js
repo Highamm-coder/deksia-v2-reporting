@@ -202,6 +202,9 @@ function buildRows_(cid, day) {
     var it7 = AdsApp.search(
       "SELECT campaign.name, ad_group_criterion.keyword.text, " +
       "ad_group_criterion.keyword.match_type, ad_group_criterion.quality_info.quality_score, " +
+      "ad_group_criterion.quality_info.creative_quality_score, " +
+      "ad_group_criterion.quality_info.post_click_quality_score, " +
+      "ad_group_criterion.quality_info.search_predicted_ctr, " +
       "metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions " +
       "FROM keyword_view WHERE segments.date = '" + day + "' AND metrics.impressions > 0");
     while (it7.hasNext()) {
@@ -214,6 +217,15 @@ function buildRows_(cid, day) {
       push("conversions", k.campaign.name, q7, num_(mk.conversions), "int");
       var qi = k.adGroupCriterion && k.adGroupCriterion.qualityInfo;
       if (qi && qi.qualityScore) push("quality_score", k.campaign.name, q7, num_(qi.qualityScore), "int");
+      // Google's three quality components are enum strings (BELOW_AVERAGE etc.) —
+      // carry them as text in meta rather than inventing a numeric score.
+      if (qi && (qi.creativeQualityScore || qi.postClickQualityScore || qi.searchPredictedCtr)) {
+        rows.push({ metric_name: "quality_components", metric_date: day, account_ext_id: cid,
+          entity: k.campaign.name, qualifier: q7, value: 1, unit: "int",
+          meta: { ad_relevance: qi.creativeQualityScore || null,
+                  landing_page: qi.postClickQualityScore || null,
+                  expected_ctr: qi.searchPredictedCtr || null } });
+      }
     }
   } catch (e) { Logger.log("keyword_view skipped: " + e); }
 

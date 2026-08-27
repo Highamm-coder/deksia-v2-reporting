@@ -345,7 +345,7 @@ async function pullMeta(src) {
   const camp = await metaInsights(src.external_id,
     "level=campaign&fields=campaign_name,ctr,cpc,cpm,cpp,frequency,reach,unique_ctr,"
     + "inline_link_click_ctr,cost_per_inline_link_click,outbound_clicks_ctr,"
-    + "video_thruplay_watched_actions,cost_per_action_type");
+    + "video_thruplay_watched_actions,purchase_roas,cost_per_action_type");
   for (const r of camp) {
     const name = r.campaign_name;
     if (!name) continue;
@@ -365,6 +365,8 @@ async function pullMeta(src) {
     const cob = Array.isArray(r.outbound_clicks_ctr) && r.outbound_clicks_ctr.length
       ? Number(r.outbound_clicks_ctr[0].value) : null;
     put("outbound_ctr", cob, "pct");
+    const roas = Array.isArray(r.purchase_roas) && r.purchase_roas.length ? Number(r.purchase_roas[0].value) : null;
+    put("purchase_roas", roas, "ratio");
     const tp = Array.isArray(r.video_thruplay_watched_actions) && r.video_thruplay_watched_actions.length
       ? Number(r.video_thruplay_watched_actions[0].value) : null;
     put("thruplays", tp, "int");
@@ -389,6 +391,24 @@ async function pullMeta(src) {
       push("spend", toNumber(r.spend), "usd", { date: r.date_start, entity: r.campaign_name, qualifier: q });
     }
   } catch (e) { console.warn(`Meta placements ${src.slug}: ${e.message}`); }
+
+  // 4b) DEMOGRAPHIC + DEVICE breakouts (same non-additive 'brk:' grain)
+  for (const [dims, tag] of [["age,gender", "demo"], ["impression_device", "device"]]) {
+    try {
+      const rs = await metaInsights(src.external_id,
+        `level=campaign&breakdowns=${dims}&fields=campaign_name,impressions,clicks,spend`);
+      for (const r of rs) {
+        if (!r.campaign_name) continue;
+        const label = tag === "demo"
+          ? `${r.age || "?"} ${r.gender || "?"}`
+          : String(r.impression_device || "unknown");
+        const q = `brk:${tag} ${label}`;
+        push("impressions", toNumber(r.impressions), "int", { date: r.date_start, entity: r.campaign_name, qualifier: q });
+        push("clicks", toNumber(r.clicks), "int", { date: r.date_start, entity: r.campaign_name, qualifier: q });
+        push("spend", toNumber(r.spend), "usd", { date: r.date_start, entity: r.campaign_name, qualifier: q });
+      }
+    } catch (e) { console.warn(`Meta ${tag} breakdown ${src.slug}: ${e.message}`); }
+  }
 
   // 5) AD QUALITY rankings — categorical strings, not numbers, so they live in their
   // own table rather than being encoded into a numeric metric.
