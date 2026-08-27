@@ -42,6 +42,15 @@ function etDate(offsetDays = 0) {
 let START = process.env.RUN_START || process.env.RUN_DATE || etDate(-1);
 let END   = process.env.RUN_END   || process.env.RUN_DATE || etDate(-1);
 
+// Meta 'brk:' breakouts (placement / demo / device) are non-additive drill-down that
+// prune_metrics() deletes past BRK_RETENTION_DAYS. Writing them for a window that is
+// already older than the horizon costs 3 extra Graph calls per account and produces
+// rows the nightly prune removes the same day — so skip them. Set
+// WRITE_BREAKOUTS=1 to force them on regardless.
+const BRK_RETENTION_DAYS = 90;
+const WRITE_BREAKOUTS = process.env.WRITE_BREAKOUTS === "1"
+  || END >= etDate(-BRK_RETENTION_DAYS);
+
 // ---- helpers ----
 // fetch with a 30s timeout — fail fast instead of hanging a scheduled run
 async function fetchT(url, opts = {}, ms = 30000) {
@@ -393,7 +402,7 @@ async function pullMeta(src) {
 
   // 4) PLACEMENT breakdown (Facebook vs Instagram vs Reels …) — a non-additive
   // breakout grain (qualifier 'brk:...') the views exclude from totals.
-  try {
+  if (WRITE_BREAKOUTS) try {
     const plat = await metaInsights(src.external_id,
       "level=campaign&breakdowns=publisher_platform,platform_position"
       + "&fields=campaign_name,impressions,clicks,spend");
@@ -407,7 +416,7 @@ async function pullMeta(src) {
   } catch (e) { console.warn(`Meta placements ${src.slug}: ${e.message}`); }
 
   // 4b) DEMOGRAPHIC + DEVICE breakouts (same non-additive 'brk:' grain)
-  for (const [dims, tag] of [["age,gender", "demo"], ["impression_device", "device"]]) {
+  for (const [dims, tag] of (WRITE_BREAKOUTS ? [["age,gender", "demo"], ["impression_device", "device"]] : [])) {
     try {
       const rs = await metaInsights(src.external_id,
         `level=campaign&breakdowns=${dims}&fields=campaign_name,impressions,clicks,spend`);
