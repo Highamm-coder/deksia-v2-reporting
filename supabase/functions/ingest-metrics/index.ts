@@ -89,6 +89,18 @@ Deno.serve(async (req: Request) => {
   const bad = payload.find((r) => !r.metric_name || !/^\d{4}-\d{2}-\d{2}$/.test(r.metric_date));
   if (bad) return json({ error: "each row needs metric_name and metric_date YYYY-MM-DD" }, 400);
 
+  // Self-describing: platforms emit metric names we can't enumerate up front (one per
+  // pixel action type). Register unseen ones with an inferred aggregation so a
+  // cost-per or a rate is never summed. Cheap: one call per POST, distinct names only.
+  const seen = new Map<string, string>();
+  for (const r of payload) if (!seen.has(r.metric_name)) seen.set(r.metric_name, r.unit ?? "int");
+  try {
+    await supabase.rpc("ensure_metric_defs", {
+      p_source: source,
+      p_rows: [...seen].map(([metric, unit]) => ({ metric, unit })),
+    });
+  } catch (_e) { /* never block ingest on metadata */ }
+
   const { error } = await supabase.from("metrics_daily")
     .upsert(payload, { onConflict: "client_id,source,metric_name,metric_date,account_ext_id,entity,qualifier" });
   if (error) {

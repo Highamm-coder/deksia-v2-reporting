@@ -253,7 +253,11 @@ async function pullMeta(src) {
 
   // 1) counts at ad level
   const ads = await metaInsights(src.external_id,
-    "level=ad&fields=campaign_name,adset_name,ad_name,ad_id,impressions,clicks,spend,actions");
+    "level=ad&fields=campaign_name,adset_name,ad_name,ad_id,impressions,clicks,spend,"
+    + "inline_link_clicks,actions,action_values,"
+    + "video_play_actions,video_thruplay_watched_actions,video_avg_time_watched_actions,"
+    + "video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,"
+    + "video_p95_watched_actions,video_p100_watched_actions");
   const seen = new Set(); // distinct ads can share a display name — disambiguate with Meta's ad_id
   for (const r of ads) {
     const date = r.date_start;
@@ -262,26 +266,67 @@ async function pullMeta(src) {
     const key = `${date}|${entity}|${qualifier}`;
     if (seen.has(key)) qualifier += ` [${r.ad_id}]`;
     seen.add(key);
-    const lead = (r.actions || []).find(a => a.action_type === "lead");
-    const link = (r.actions || []).find(a => a.action_type === "link_click");
     push("impressions", toNumber(r.impressions), "int", { date, entity, qualifier });
     push("clicks",      toNumber(r.clicks), "int", { date, entity, qualifier });
     push("spend",       toNumber(r.spend), "usd", { date, entity, qualifier });
-    push("leads",       lead ? Number(lead.value) : null, "int", { date, entity, qualifier });
-    push("link_clicks", link ? Number(link.value) : null, "int", { date, entity, qualifier });
+    push("link_clicks", toNumber(r.inline_link_clicks), "int", { date, entity, qualifier });
+
+    // EVERY action type Meta reports for this ad, under its own metric name (the
+    // Meta equivalent of Google's conversion actions). 'lead' keeps its historical
+    // name so existing goals/formulas are unaffected.
+    for (const a of (r.actions || [])) {
+      const t = String(a.action_type || "");
+      if (!t || t === "link_click") continue;              // link_click covered above
+      const metric = t === "lead" ? "leads" : `act_${t}`;
+      push(metric, Number(a.value), "int", { date, entity, qualifier });
+    }
+    // and the value (revenue) Meta attributes to each action type, where the pixel sends it
+    for (const a of (r.action_values || [])) {
+      const t = String(a.action_type || "");
+      if (!t) continue;
+      push(`actval_${t}`, Number(a.value), "usd", { date, entity, qualifier });
+    }
+    // video engagement — the first element of each *_actions array is the total
+    const v1 = (arr) => (Array.isArray(arr) && arr.length ? Number(arr[0].value) : null);
+    push("video_plays",     v1(r.video_play_actions), "int", { date, entity, qualifier });
+    push("thruplays",       v1(r.video_thruplay_watched_actions), "int", { date, entity, qualifier });
+    push("video_avg_watch", v1(r.video_avg_time_watched_actions), "sec", { date, entity, qualifier });
+    push("video_p25",  v1(r.video_p25_watched_actions), "int", { date, entity, qualifier });
+    push("video_p50",  v1(r.video_p50_watched_actions), "int", { date, entity, qualifier });
+    push("video_p75",  v1(r.video_p75_watched_actions), "int", { date, entity, qualifier });
+    push("video_p95",  v1(r.video_p95_watched_actions), "int", { date, entity, qualifier });
+    push("video_p100", v1(r.video_p100_watched_actions), "int", { date, entity, qualifier });
   }
 
   // 2) account-level metrics Meta reports as de-duplicated / computed totals — these are
   // NOT summable across ads (reach counts unique people; ctr/cpc/cpl are ratios), so they
   // live at account grain (entity='', qualifier='') exactly as Meta reports them per day.
-  const acct = await metaInsights(src.external_id, "level=account&fields=ctr,cpc,reach,cost_per_action_type");
+  const acct = await metaInsights(src.external_id,
+    "level=account&fields=ctr,cpc,cpm,cpp,reach,frequency,unique_ctr,"
+    + "inline_link_click_ctr,cost_per_inline_link_click,cost_per_unique_click,"
+    + "outbound_clicks,outbound_clicks_ctr,unique_clicks,cost_per_action_type");
   for (const r of acct) {
     push("ctr",   toNumber(r.ctr), "pct", { date: r.date_start });
     push("cpc",   toNumber(r.cpc), "usd", { date: r.date_start });
+    push("cpm",   toNumber(r.cpm), "usd", { date: r.date_start });
+    push("cpp",   toNumber(r.cpp), "usd", { date: r.date_start });
     push("reach", toNumber(r.reach), "int", { date: r.date_start });
-    // Meta's own cost-per-lead (cost_per_action_type where action_type='lead')
-    const cpl = (r.cost_per_action_type || []).find(a => a.action_type === "lead");
-    push("cost_per_lead", cpl ? Number(cpl.value) : null, "usd", { date: r.date_start });
+    push("frequency", toNumber(r.frequency), "ratio", { date: r.date_start });
+    push("unique_ctr", toNumber(r.unique_ctr), "pct", { date: r.date_start });
+    push("link_ctr", toNumber(r.inline_link_click_ctr), "pct", { date: r.date_start });
+    push("cost_per_link_click", toNumber(r.cost_per_inline_link_click), "usd", { date: r.date_start });
+    push("cost_per_unique_click", toNumber(r.cost_per_unique_click), "usd", { date: r.date_start });
+    push("unique_clicks", toNumber(r.unique_clicks), "int", { date: r.date_start });
+    const ob = Array.isArray(r.outbound_clicks) && r.outbound_clicks.length ? Number(r.outbound_clicks[0].value) : null;
+    push("outbound_clicks", ob, "int", { date: r.date_start });
+    const obc = Array.isArray(r.outbound_clicks_ctr) && r.outbound_clicks_ctr.length ? Number(r.outbound_clicks_ctr[0].value) : null;
+    push("outbound_ctr", obc, "pct", { date: r.date_start });
+    // Meta's own cost per action, for EVERY action type it reports (lead keeps its name)
+    for (const a of (r.cost_per_action_type || [])) {
+      const t = String(a.action_type || "");
+      if (!t) continue;
+      push(t === "lead" ? "cost_per_lead" : `cpa_${t}`, Number(a.value), "usd", { date: r.date_start });
+    }
   }
 
   // 3) CAMPAIGN-level rates, exactly as Meta computes them at that grain (not derived
@@ -289,7 +334,9 @@ async function pullMeta(src) {
   // the metric tables exclude them (they'd pollute the account-level averages) while
   // the campaign table shows them per campaign line.
   const camp = await metaInsights(src.external_id,
-    "level=campaign&fields=campaign_name,ctr,cpc,cpm,frequency,reach,cost_per_action_type");
+    "level=campaign&fields=campaign_name,ctr,cpc,cpm,cpp,frequency,reach,unique_ctr,"
+    + "inline_link_click_ctr,cost_per_inline_link_click,outbound_clicks_ctr,"
+    + "video_thruplay_watched_actions,cost_per_action_type");
   for (const r of camp) {
     const name = r.campaign_name;
     if (!name) continue;
@@ -302,9 +349,61 @@ async function pullMeta(src) {
     put("cpm", toNumber(r.cpm), "usd");
     put("frequency", toNumber(r.frequency), "ratio");
     put("reach", toNumber(r.reach), "int");
-    const ccpl = (r.cost_per_action_type || []).find(a => a.action_type === "lead");
-    put("cost_per_lead", ccpl ? Number(ccpl.value) : null, "usd");
+    put("cpp", toNumber(r.cpp), "usd");
+    put("unique_ctr", toNumber(r.unique_ctr), "pct");
+    put("link_ctr", toNumber(r.inline_link_click_ctr), "pct");
+    put("cost_per_link_click", toNumber(r.cost_per_inline_link_click), "usd");
+    const cob = Array.isArray(r.outbound_clicks_ctr) && r.outbound_clicks_ctr.length
+      ? Number(r.outbound_clicks_ctr[0].value) : null;
+    put("outbound_ctr", cob, "pct");
+    const tp = Array.isArray(r.video_thruplay_watched_actions) && r.video_thruplay_watched_actions.length
+      ? Number(r.video_thruplay_watched_actions[0].value) : null;
+    put("thruplays", tp, "int");
+    for (const a of (r.cost_per_action_type || [])) {
+      const t = String(a.action_type || "");
+      if (!t) continue;
+      put(t === "lead" ? "cost_per_lead" : `cpa_${t}`, Number(a.value), "usd");
+    }
   }
+
+  // 4) PLACEMENT breakdown (Facebook vs Instagram vs Reels …) — a non-additive
+  // breakout grain (qualifier 'brk:...') the views exclude from totals.
+  try {
+    const plat = await metaInsights(src.external_id,
+      "level=campaign&breakdowns=publisher_platform,platform_position"
+      + "&fields=campaign_name,impressions,clicks,spend");
+    for (const r of plat) {
+      if (!r.campaign_name) continue;
+      const q = `brk:${r.publisher_platform || "unknown"}${r.platform_position ? " / " + r.platform_position : ""}`;
+      push("impressions", toNumber(r.impressions), "int", { date: r.date_start, entity: r.campaign_name, qualifier: q });
+      push("clicks", toNumber(r.clicks), "int", { date: r.date_start, entity: r.campaign_name, qualifier: q });
+      push("spend", toNumber(r.spend), "usd", { date: r.date_start, entity: r.campaign_name, qualifier: q });
+    }
+  } catch (e) { console.warn(`Meta placements ${src.slug}: ${e.message}`); }
+
+  // 5) AD QUALITY rankings — categorical strings, not numbers, so they live in their
+  // own table rather than being encoded into a numeric metric.
+  try {
+    const q = await metaInsights(src.external_id,
+      "level=ad&fields=campaign_name,adset_name,ad_name,ad_id,quality_ranking,"
+      + "engagement_rate_ranking,conversion_rate_ranking");
+    const qrows = q.filter(r => r.quality_ranking || r.engagement_rate_ranking || r.conversion_rate_ranking)
+      .map(r => ({
+        account_ext_id: src.external_id, metric_date: r.date_start,
+        campaign: r.campaign_name || "", ad_set: r.adset_name || "",
+        ad_name: r.ad_name || "", ad_id: r.ad_id || "",
+        quality_ranking: r.quality_ranking || null,
+        engagement_rate_ranking: r.engagement_rate_ranking || null,
+        conversion_rate_ranking: r.conversion_rate_ranking || null,
+      }));
+    if (qrows.length) {
+      for (let i = 0; i < qrows.length; i += 500) {
+        await sb("meta_ad_quality?on_conflict=account_ext_id,metric_date,ad_id",
+          { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+            body: JSON.stringify(qrows.slice(i, i + 500)) });
+      }
+    }
+  } catch (e) { console.warn(`Meta quality ${src.slug}: ${e.message}`); }
   return rows;
 }
 
