@@ -68,6 +68,8 @@ function buildRows_(cid, day) {
   var seenCampaign = {};
 
   // ---- 1. AD GROUP: the authoritative counts ----
+  // NOT wrapped in try/catch on purpose: counts are load-bearing. If this fails the
+  // day must end up 'errored' and be retried, never silently posted without spend.
   var it = AdsApp.search(
     "SELECT campaign.name, campaign.advertising_channel_type, ad_group.name, " +
     "metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions, " +
@@ -109,17 +111,15 @@ function buildRows_(cid, day) {
   }
 
   // ---- 3. CAMPAIGN RATES + auction diagnostics + video + calls (qualifier='rate') ----
+  try {
   var it3 = AdsApp.search(
     "SELECT campaign.name, metrics.ctr, metrics.average_cpc, metrics.average_cpm, " +
-    "metrics.average_cpv, metrics.cost_per_conversion, metrics.cost_per_all_conversions, " +
+    "metrics.cost_per_conversion, metrics.cost_per_all_conversions, " +
     "metrics.conversions_from_interactions_rate, metrics.value_per_conversion, " +
     "metrics.interaction_rate, metrics.engagement_rate, " +
     "metrics.search_impression_share, metrics.search_budget_lost_impression_share, " +
     "metrics.search_rank_lost_impression_share, metrics.search_click_share, " +
     "metrics.absolute_top_impression_percentage, metrics.top_impression_percentage, " +
-    "metrics.video_views, metrics.video_view_rate, " +
-    "metrics.video_quartile_p25_rate, metrics.video_quartile_p50_rate, " +
-    "metrics.video_quartile_p75_rate, metrics.video_quartile_p100_rate, " +
     "metrics.phone_calls, metrics.phone_impressions, metrics.phone_through_rate " +
     "FROM campaign WHERE segments.date = '" + day + "' AND metrics.impressions > 0");
   while (it3.hasNext()) {
@@ -127,7 +127,6 @@ function buildRows_(cid, day) {
     push("ctr", c3, "rate", pctOf_(m3.ctr), "pct");
     push("cpc", c3, "rate", micros_(m3.averageCpc), "usd");
     push("cpm", c3, "rate", micros_(m3.averageCpm), "usd");
-    push("cpv", c3, "rate", micros_(m3.averageCpv), "usd");
     push("cost_per_conversion", c3, "rate", micros_(m3.costPerConversion), "usd");
     push("cost_per_all_conversions", c3, "rate", micros_(m3.costPerAllConversions), "usd");
     push("conversion_rate", c3, "rate", pctOf_(m3.conversionsFromInteractionsRate), "pct");
@@ -140,18 +139,44 @@ function buildRows_(cid, day) {
     push("click_share", c3, "rate", pctOf_(m3.searchClickShare), "pct");
     push("top_impression_pct", c3, "rate", pctOf_(m3.absoluteTopImpressionPercentage), "pct");
     push("top_of_page_pct", c3, "rate", pctOf_(m3.topImpressionPercentage), "pct");
-    push("video_views", c3, "rate", num_(m3.videoViews), "int");
-    push("video_view_rate", c3, "rate", pctOf_(m3.videoViewRate), "pct");
-    push("video_p25_rate", c3, "rate", pctOf_(m3.videoQuartileP25Rate), "pct");
-    push("video_p50_rate", c3, "rate", pctOf_(m3.videoQuartileP50Rate), "pct");
-    push("video_p75_rate", c3, "rate", pctOf_(m3.videoQuartileP75Rate), "pct");
-    push("video_p100_rate", c3, "rate", pctOf_(m3.videoQuartileP100Rate), "pct");
     push("phone_calls", c3, "rate", num_(m3.phoneCalls), "int");
     push("phone_impressions", c3, "rate", num_(m3.phoneImpressions), "int");
     push("phone_through_rate", c3, "rate", pctOf_(m3.phoneThroughRate), "pct");
   }
+  } catch (e) { Logger.log("campaign rates query failed: " + e); }
+
+  // ---- 3b. VIDEO metrics — availability varies by API version and campaign type,
+  // so this is a separate guarded query. Tried widest-first, then a minimal fallback:
+  // one unrecognized field must never cost us the core rates (it did once).
+  var videoSets = [
+    "metrics.video_views, metrics.video_view_rate, metrics.average_cpv, " +
+      "metrics.video_quartile_p25_rate, metrics.video_quartile_p50_rate, " +
+      "metrics.video_quartile_p75_rate, metrics.video_quartile_p100_rate",
+    "metrics.video_views, metrics.video_view_rate",
+    "metrics.video_views",
+  ];
+  for (var vi = 0; vi < videoSets.length; vi++) {
+    try {
+      var itv = AdsApp.search("SELECT campaign.name, " + videoSets[vi] +
+        " FROM campaign WHERE segments.date = '" + day + "' AND metrics.impressions > 0");
+      while (itv.hasNext()) {
+        var rv = itv.next(), mv2 = rv.metrics || {}, cv = rv.campaign.name;
+        push("video_views", cv, "rate", num_(mv2.videoViews), "int");
+        push("video_view_rate", cv, "rate", pctOf_(mv2.videoViewRate), "pct");
+        push("cpv", cv, "rate", micros_(mv2.averageCpv), "usd");
+        push("video_p25_rate", cv, "rate", pctOf_(mv2.videoQuartileP25Rate), "pct");
+        push("video_p50_rate", cv, "rate", pctOf_(mv2.videoQuartileP50Rate), "pct");
+        push("video_p75_rate", cv, "rate", pctOf_(mv2.videoQuartileP75Rate), "pct");
+        push("video_p100_rate", cv, "rate", pctOf_(mv2.videoQuartileP100Rate), "pct");
+      }
+      break;                       // this field set worked — stop trying narrower ones
+    } catch (e) {
+      if (vi === videoSets.length - 1) Logger.log("video metrics unavailable in this account: " + e);
+    }
+  }
 
   // ---- 4. ACCOUNT-level rates (entity='' qualifier='') ----
+  try {
   var it4 = AdsApp.search(
     "SELECT metrics.ctr, metrics.average_cpc, metrics.average_cpm, " +
     "metrics.cost_per_conversion, metrics.conversions_from_interactions_rate " +
@@ -164,8 +189,10 @@ function buildRows_(cid, day) {
     push("cost_per_conversion", "", "", micros_(m4.costPerConversion), "usd");
     push("conversion_rate", "", "", pctOf_(m4.conversionsFromInteractionsRate), "pct");
   }
+  } catch (e) { Logger.log("account rates unavailable: " + e); }
 
   // ---- 5. AD level (drill) ----
+  try {
   var it5 = AdsApp.search(
     "SELECT campaign.name, ad_group.name, ad_group_ad.ad.name, ad_group_ad.ad.type, " +
     "metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions " +
@@ -179,6 +206,7 @@ function buildRows_(cid, day) {
     push("spend", a.campaign.name, q5, micros_(ma.costMicros), "usd");
     push("conversions", a.campaign.name, q5, num_(ma.conversions), "int");
   }
+  } catch (e) { Logger.log("ad-level drill unavailable: " + e); }
 
   // ---- 6. SEARCH TERMS — the queries people actually typed ----
   try {
@@ -309,6 +337,7 @@ function buildRows_(cid, day) {
   } catch (e) { Logger.log("gender_view skipped: " + e); }
 
   // ---- 11. CONVERSION ACTIONS (name + category) ----
+  try {
   var it13 = AdsApp.search(
     "SELECT campaign.name, segments.conversion_action_name, " +
     "segments.conversion_action_category, metrics.conversions, metrics.conversions_value " +
@@ -320,13 +349,16 @@ function buildRows_(cid, day) {
     push("conversion_action", ca.campaign.name, name, num_(mc.conversions), "int", cat ? { category: cat } : undefined);
     push("conversion_action_value", ca.campaign.name, name, num_(mc.conversionsValue), "usd", cat ? { category: cat } : undefined);
   }
+  } catch (e) { Logger.log("conversion actions unavailable: " + e); }
 
   return rows;
 }
 
 // Post one account-day in chunks (row counts are much larger now).
 function postDay_(cid, day) {
-  var rows = buildRows_(cid, day);
+  var rows;
+  try { rows = buildRows_(cid, day); }
+  catch (e) { Logger.log(cid + " " + day + " BUILD FAILED: " + e); return -1; }
   if (!rows.length) { Logger.log(cid + " " + day + ": no rows"); return 0; }
   var CHUNK = 1200, sent = 0;
   for (var i = 0; i < rows.length; i += CHUNK) {
