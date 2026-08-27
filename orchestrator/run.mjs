@@ -79,6 +79,15 @@ async function sb(path, opts = {}) {
 
 async function ingest(source, clientSlug, rows) {
   if (!rows.length) return 0;
+  // Dedupe on the destination primary key before posting. Platforms can legitimately
+  // return the same tuple twice in one response (e.g. Meta repeating an action_type
+  // across attribution entries); Postgres rejects the whole batch with "cannot affect
+  // row a second time" if we pass both. Last value wins — same as a re-run would.
+  const byKey = new Map();
+  for (const r of rows) {
+    byKey.set(`${r.metric_name}|${r.metric_date}|${r.account_ext_id ?? ""}|${r.entity ?? ""}|${r.qualifier ?? ""}`, r);
+  }
+  if (byKey.size !== rows.length) rows = [...byKey.values()];
   // chunk large payloads — fine-grain backfills can be 10k+ rows per client/source,
   // which blows the edge function's memory (WORKER_RESOURCE_LIMIT). Idempotent, so
   // chunking is safe.
