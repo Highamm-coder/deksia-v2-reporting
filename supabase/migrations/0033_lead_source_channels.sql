@@ -1,0 +1,15 @@
+-- 0033 (applied live 2026-08-06): paid vs organic MQLs from CallRail.
+-- CallRail already attributes every call/form to a lead source ("Google Ads",
+-- "Google Organic", "Google My Business", "SearchGPT", a bare domain, …); we were
+-- storing that per source but never grouping it.
+--   lead_source_channels: editable pattern → channel map (paid | organic | direct |
+--     referral | offline | other), regex or substring, longest pattern wins.
+--     Admin-writable, readable by all authenticated users.
+--   classify_lead_source(src): returns the channel, or 'unclassified' when no rule
+--     matches — unknown sources stay visible instead of being silently bucketed.
+--   v_client_lead_sources: per client/month/lead source with its channel and
+--     mqls / qualified / calls / forms.
+-- UI: "Leads by channel" table in the CallRail section, expandable to the exact
+-- sources behind each channel. Note Postgres regex uses \y (not \b) for word
+-- boundaries — the first domain rule silently matched nothing because of it.
+select 1; -- marker
