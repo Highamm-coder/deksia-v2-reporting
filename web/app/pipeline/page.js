@@ -1,6 +1,6 @@
 import { getSupabaseServer } from "../../lib/supabase/server";
 import AppShell from "../_components/AppShell";
-import { runConnectionTest } from "./actions";
+import { runConnectionTest, enqueueGadsBackfill } from "./actions";
 
 export const dynamic = "force-dynamic";
 const num = (v, d = 0) => (v == null ? "—" : Number(v).toLocaleString(undefined, { maximumFractionDigits: d }));
@@ -30,12 +30,13 @@ const TEST_MSG = {
 
 export default async function Pipeline({ searchParams }) {
   const supabase = getSupabaseServer();
-  const [{ data: pipeline }, { data: creds }, { data: checks }, { data: probes }, { data: isAdmin }] = await Promise.all([
+  const [{ data: pipeline }, { data: creds }, { data: checks }, { data: probes }, { data: isAdmin }, { data: bf }] = await Promise.all([
     supabase.from("v_pipeline_health").select("*").order("slug").order("source"),
     supabase.from("connector_status").select("*").order("provider"),
     supabase.from("integrity_checks").select("*").order("checked_at", { ascending: false }).limit(1),
     supabase.from("connection_probes").select("*").order("source").order("client_slug"),
     supabase.rpc("is_admin"),
+    supabase.from("v_gads_backfill_progress").select("*").order("slug"),
   ]);
   let testMsg = TEST_MSG[searchParams?.test];
   if (searchParams?.test === "failed" && searchParams?.why) {
@@ -95,6 +96,46 @@ export default async function Pipeline({ searchParams }) {
           </tbody>
         </table>
       )}
+
+      <h2>Google Ads backfill queue</h2>
+      <div className="card" style={{ maxWidth: "none" }}>
+        <p className="muted" style={{ margin: "0 0 8px", fontSize: 12.5 }}>
+          Queue a date range once; each account&apos;s Ads Script claims up to 20 days per hourly run
+          and drains it unattended. Idempotent — re-queuing a day just rewrites it.
+          {searchParams?.bf && !["forbidden","baddate","failed"].includes(String(searchParams.bf))
+            && <strong style={{ color: "var(--on)" }}> Queued {searchParams.bf} account-days.</strong>}
+          {searchParams?.bf === "failed" && <strong style={{ color: "var(--off)" }}> Couldn&apos;t queue.</strong>}
+        </p>
+        {isAdmin && (
+          <form action={enqueueGadsBackfill} style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap", margin: 0 }}>
+            <label style={{ margin: 0 }}>From<input name="start" type="date" defaultValue="2026-01-01" style={{ width: "auto" }} /></label>
+            <label style={{ margin: 0 }}>To<input name="end" type="date" style={{ width: "auto" }} /></label>
+            <button type="submit" style={{ margin: 0 }}>Queue backfill</button>
+          </form>
+        )}
+        {(bf || []).some((r) => r.pending > 0 || r.in_flight > 0) ? (
+          <table style={{ marginTop: 10 }}>
+            <thead><tr><th>Client</th><th>Account</th><th className="num">Done</th><th className="num">Pending</th>
+              <th className="num">In flight</th><th className="num">Errors</th><th>Oldest outstanding</th><th>Last write</th></tr></thead>
+            <tbody>
+              {(bf || []).filter((r) => r.pending > 0 || r.in_flight > 0 || r.errored > 0).map((r) => (
+                <tr key={r.cid}>
+                  <td>{r.slug || "—"}</td>
+                  <td className="muted" style={{ fontSize: 12 }}>{r.account_label}</td>
+                  <td className="num">{r.done}</td>
+                  <td className="num">{r.pending}</td>
+                  <td className="num">{r.in_flight}</td>
+                  <td className="num" style={r.errored > 0 ? { color: "var(--off)" } : undefined}>{r.errored}</td>
+                  <td style={{ fontSize: 12 }}>{r.oldest_outstanding || "—"}</td>
+                  <td className="muted" style={{ fontSize: 12 }}>{r.last_write ? new Date(r.last_write).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (bf || []).length ? (
+          <p className="muted" style={{ fontSize: 12.5, margin: "8px 0 0" }}>Queue empty — every queued day has been written.</p>
+        ) : null}
+      </div>
 
       <h2>Data integrity</h2>
       <div className="card" style={{ maxWidth: "none", display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>

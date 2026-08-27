@@ -37,3 +37,17 @@ export async function runConnectionTest() {
   } catch { /* non-JSON body */ }
   redirect(`/pipeline?test=failed&why=${encodeURIComponent(why.slice(0, 200))}`);
 }
+
+// Queue a Google Ads backfill range. The Ads Scripts drain it on their own hourly
+// schedule — no date-range pasting, no per-month runs.
+export async function enqueueGadsBackfill(formData) {
+  const supabase = getSupabaseServer();
+  const { data: isAdmin } = await supabase.rpc("is_admin");
+  if (!isAdmin) redirect("/pipeline?bf=forbidden");
+  const start = String(formData.get("start") || "");
+  const end = String(formData.get("end") || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) redirect("/pipeline?bf=baddate");
+  const { data, error } = await supabase.rpc("gads_enqueue", { p_start: start, p_end: end, p_cid: null });
+  revalidatePath("/pipeline");
+  redirect(error ? "/pipeline?bf=failed" : `/pipeline?bf=${encodeURIComponent(String(data ?? 0))}`);
+}
