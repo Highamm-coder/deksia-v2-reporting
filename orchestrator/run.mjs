@@ -20,6 +20,8 @@
 //   META_ACCESS_TOKEN       Meta Graph API — long-lived system-user token (ad-account
 //                           insights; + pages_read_engagement/read_insights for Pages)
 //   RUN_START / RUN_END     optional YYYY-MM-DD window override (default = yesterday ET)
+//   ONLY_SLUG               optional client slug — pull that client only
+//   WRITE_BREAKOUTS=1       force Meta brk: breakouts even outside the 90-day horizon
 
 const {
   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, INGEST_TOKEN,
@@ -41,6 +43,11 @@ function etDate(offsetDays = 0) {
 }
 let START = process.env.RUN_START || process.env.RUN_DATE || etDate(-1);
 let END   = process.env.RUN_END   || process.env.RUN_DATE || etDate(-1);
+
+// Re-pull one client only. Used when a client's metric depth changes: the new
+// metrics only exist for days that get pulled again, and re-running every client
+// to fill in one account's history is a lot of API calls for nothing.
+const ONLY_SLUG = (process.env.ONLY_SLUG || "").trim();
 
 // Meta 'brk:' breakouts (placement / demo / device) are non-additive drill-down that
 // prune_metrics() deletes past BRK_RETENTION_DAYS. Writing them for a window that is
@@ -275,9 +282,38 @@ async function metaInsights(acct, params) {
   return out;
 }
 
+// Meta reports ~90 action types per account, and most of them are either vanity
+// engagement or a straight alias of another one — measured live 2026-08-28,
+// omni_landing_page_view == landing_page_view to the unit (445,677 both), and
+// page_engagement and post_engagement differ by 0.05%. Storing all of them gave one
+// client 162 metric names and was a third of the table.
+//
+// STANDARD depth keeps the conversions an account is actually judged on, one row per
+// real event. FULL depth keeps everything Meta returns, including its aliases and the
+// unnamed offsite_conversion.custom.<pixel-id> events — set per client, per source, in
+// client_sources.params.metric_depth (console: client → Settings → Meta metric depth).
+// 'lead' is never filtered: it becomes `leads`, a priority metric.
+const META_STANDARD_ACTIONS = new Set([
+  "lead",                                             // → leads
+  "onsite_conversion.lead_grouped",                   // Meta lead-form submissions
+  "offsite_conversion.fb_pixel_lead",                 // pixel-fired leads
+  "landing_page_view",
+  "purchase", "add_to_cart", "initiate_checkout", "add_payment_info",
+  "complete_registration", "subscribe", "start_trial", "donate",
+  "contact", "schedule", "submit_application", "find_location",
+  "click_to_call_call_confirm",                       // call button confirmed
+  "onsite_conversion.messaging_conversation_started_7d",
+  "post_engagement",                                  // the one engagement number
+]);
+
+// 'full' pulls every action type; anything else (including unset) is 'standard'.
+const metaDepth = (src) => (src.params?.metric_depth === "full" ? "full" : "standard");
+const keepAction = (depth, t) => depth === "full" || META_STANDARD_ACTIONS.has(t);
+
 async function pullMeta(src) {
   if (!META_ACCESS_TOKEN) return [];                       // skip until token configured
   const rows = [];
+  const depth = metaDepth(src);
   const push = (name, val, unit, extra = {}) => {
     if (val != null) rows.push({ metric_name: name, metric_date: extra.date, value: val, unit,
       account_ext_id: src.external_id, entity: extra.entity || "", qualifier: extra.qualifier || "" });
@@ -309,13 +345,14 @@ async function pullMeta(src) {
     for (const a of (r.actions || [])) {
       const t = String(a.action_type || "");
       if (!t || t === "link_click") continue;              // link_click covered above
+      if (!keepAction(depth, t)) continue;
       const metric = t === "lead" ? "leads" : `act_${t}`;
       push(metric, Number(a.value), "int", { date, entity, qualifier });
     }
     // and the value (revenue) Meta attributes to each action type, where the pixel sends it
     for (const a of (r.action_values || [])) {
       const t = String(a.action_type || "");
-      if (!t) continue;
+      if (!t || !keepAction(depth, t)) continue;
       push(`actval_${t}`, Number(a.value), "usd", { date, entity, qualifier });
     }
     // video engagement — the first element of each *_actions array is the total
@@ -356,7 +393,7 @@ async function pullMeta(src) {
     // Meta's own cost per action, for EVERY action type it reports (lead keeps its name)
     for (const a of (r.cost_per_action_type || [])) {
       const t = String(a.action_type || "");
-      if (!t) continue;
+      if (!t || !keepAction(depth, t)) continue;
       push(t === "lead" ? "cost_per_lead" : `cpa_${t}`, Number(a.value), "usd", { date: r.date_start });
     }
   }
@@ -395,7 +432,7 @@ async function pullMeta(src) {
     put("thruplays", tp, "int");
     for (const a of (r.cost_per_action_type || [])) {
       const t = String(a.action_type || "");
-      if (!t) continue;
+      if (!t || !keepAction(depth, t)) continue;
       put(t === "lead" ? "cost_per_lead" : `cpa_${t}`, Number(a.value), "usd");
     }
   }
@@ -519,9 +556,14 @@ async function main() {
   console.log(PROBE_ONLY
     ? "Connection test (probe only — no pulls)"
     : `Orchestrator run ${START}..${END} (America/New_York)`);
-  const sources = await sb(
+  let sources = await sb(
     "client_sources?select=source,external_id,params,active,clients!inner(slug,status)&active=eq.true&clients.status=eq.active"
   );
+  if (ONLY_SLUG) {
+    sources = sources.filter((s) => s.clients.slug === ONLY_SLUG);
+    console.log(`ONLY_SLUG=${ONLY_SLUG} → ${sources.length} source(s)`);
+    if (!sources.length) console.warn("  ! no active sources match that slug — nothing to pull");
+  }
   const tally = {}, health = {}; // health[source] = {ok, fail}
   const mark = (source, ok) => { const h = health[source] = health[source] || { ok: 0, fail: 0 }; ok ? h.ok++ : h.fail++; };
 

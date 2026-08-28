@@ -18,6 +18,9 @@ on:
       run_end:
         description: "Backfill window end (YYYY-MM-DD)."
         required: false
+      only_slug:
+        description: "Pull one client only (slug). Blank = every active client."
+        required: false
       probe_only:
         description: "Connection test only — probe every mapped account, skip pulls."
         required: false
@@ -46,5 +49,6 @@ jobs:
           RUN_DATE: ${{ github.event.inputs.run_date }}
           RUN_START: ${{ github.event.inputs.run_start }}
           RUN_END: ${{ github.event.inputs.run_end }}
+          ONLY_SLUG: ${{ github.event.inputs.only_slug }}
           PROBE_ONLY: ${{ inputs.probe_only && '1' || '' }}
         run: node orchestrator/run.mjs

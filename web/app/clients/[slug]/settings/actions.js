@@ -3,10 +3,10 @@ import { getSupabaseServer } from "../../../../lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-const back = (slug, q = "") => {
+const back = (slug, q = "", hash = "custom-metrics") => {
   revalidatePath(`/clients/${encodeURIComponent(slug)}/settings`);
   revalidatePath(`/clients/${encodeURIComponent(slug)}`);
-  redirect(`/clients/${encodeURIComponent(slug)}/settings${q}#custom-metrics`);
+  redirect(`/clients/${encodeURIComponent(slug)}/settings${q}#${hash}`);
 };
 
 const parseTerms = (vals) =>
@@ -49,4 +49,58 @@ export async function setDerivedActive(formData) {
   const supabase = getSupabaseServer();
   await supabase.from("derived_metrics").update({ active, updated_at: new Date().toISOString() }).eq("id", id);
   return back(slug);
+}
+
+// ---- Meta metric depth -------------------------------------------------------
+// Meta returns ~90 action types per account, most of them aliases of each other or
+// vanity engagement. Standard depth stores the conversions an account is judged on;
+// full depth stores everything, for the clients who actually want it. The flag lives
+// in client_sources.params so it travels with the account mapping, and the
+// orchestrator reads it on every run.
+export async function setMetricDepth(formData) {
+  const slug = String(formData.get("slug"));
+  const id = String(formData.get("source_id"));
+  const depth = formData.get("depth") === "full" ? "full" : "standard";
+  const supabase = getSupabaseServer();
+  const { data: isAdmin } = await supabase.rpc("is_admin");
+  if (!isAdmin) return back(slug, "?depth=forbidden", "metric-depth");
+
+  // merge, don't overwrite — params also carries confirmed/brand/note flags
+  const { data: row } = await supabase.from("client_sources").select("params").eq("id", id).maybeSingle();
+  const params = { ...(row?.params || {}), metric_depth: depth };
+  const { error } = await supabase.from("client_sources").update({ params }).eq("id", id);
+  return back(slug, error ? "?depth=failed" : `?depth=${depth}`, "metric-depth");
+}
+
+// Re-pull one client over a date range. Changing depth only affects days that get
+// pulled again, so switching a client to full is inert until this runs. Targeted by
+// slug so we don't re-pull 13 accounts to backfill one.
+export async function repullClient(formData) {
+  const slug = String(formData.get("slug"));
+  const start = String(formData.get("start") || "");
+  const end = String(formData.get("end") || "");
+  const supabase = getSupabaseServer();
+  const { data: isAdmin } = await supabase.rpc("is_admin");
+  if (!isAdmin) return back(slug, "?repull=forbidden", "metric-depth");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) return back(slug, "?repull=baddate", "metric-depth");
+
+  const token = (process.env.GITHUB_DISPATCH_TOKEN || "").trim();
+  if (!token) return back(slug, "?repull=notoken", "metric-depth");
+
+  const res = await fetch(
+    "https://api.github.com/repos/Highamm-coder/deksia-v2-reporting/actions/workflows/orchestrate.yml/dispatches",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ ref: "main", inputs: { run_start: start, run_end: end, only_slug: slug } }),
+    },
+  );
+  if (res.ok) return back(slug, "?repull=started", "metric-depth");
+  let why = `${res.status}`;
+  try { const b = await res.json(); if (b?.message) why += ` ${b.message}`; } catch { /* non-JSON */ }
+  return back(slug, `?repull=failed&why=${encodeURIComponent(why.slice(0, 200))}`, "metric-depth");
 }

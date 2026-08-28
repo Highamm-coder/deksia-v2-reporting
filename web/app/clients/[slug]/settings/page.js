@@ -1,7 +1,7 @@
 import { getSupabaseServer } from "../../../../lib/supabase/server";
 import ScriptBlock from "../../../_components/ScriptBlock";
 import { generateGoogleAdsScript } from "../../../../lib/googleAdsScript";
-import { addDerived, setDerivedActive } from "./actions";
+import { addDerived, setDerivedActive, setMetricDepth, repullClient } from "./actions";
 
 export const dynamic = "force-dynamic";
 const num = (v, d = 0) => (v == null ? "—" : Number(v).toLocaleString(undefined, { maximumFractionDigits: d }));
@@ -25,6 +25,32 @@ export default async function SettingsTab({ params, searchParams }) {
     : searchParams?.dok ? "Computed metric added — it's live on the dashboard." : null;
   const sources = (client.client_sources || []).sort((a, b) => a.source.localeCompare(b.source) || String(a.external_id).localeCompare(String(b.external_id)));
   const gAdsScript = generateGoogleAdsScript(client.slug, client.name);
+
+  // Meta depth: how many distinct metric names this client actually has stored, so the
+  // choice is made against the real number rather than a promise about it.
+  const metaSources = sources.filter((s) => s.source === "meta");
+  const { data: nameRow } = metaSources.length
+    ? await supabase.from("v_client_metric_names").select("metric_names")
+        .eq("client_id", client.id).eq("source", "meta").maybeSingle()
+    : { data: null };
+  const metaNameCount = nameRow?.metric_names ?? 0;
+  const DEPTH_MSG = {
+    standard: ["Set to standard — the next pull stores the core conversion set.", "var(--on)"],
+    full: ["Set to full — the next pull stores every action type Meta returns.", "var(--on)"],
+    failed: ["Couldn't save the depth change.", "var(--off)"],
+    forbidden: ["Admins only.", "var(--off)"],
+  };
+  const REPULL_MSG = {
+    started: ["Re-pull queued on GitHub Actions — give it a few minutes, then reload.", "var(--on)"],
+    notoken: ["No GITHUB_DISPATCH_TOKEN set — add it in Vercel to enable one-click re-pulls.", "var(--risk)"],
+    baddate: ["Need both dates as YYYY-MM-DD.", "var(--off)"],
+    forbidden: ["Admins only.", "var(--off)"],
+    failed: [`GitHub rejected the request${searchParams?.why ? ` — ${searchParams.why}` : ""}.`, "var(--off)"],
+  };
+  const depthMsg = DEPTH_MSG[searchParams?.depth];
+  const repullMsg = REPULL_MSG[searchParams?.repull];
+  const today = new Date().toISOString().slice(0, 10);
+  const yearStart = `${new Date().getUTCFullYear()}-01-01`;
 
   return (
     <>
@@ -67,6 +93,61 @@ export default async function SettingsTab({ params, searchParams }) {
           ))}
         </tbody>
       </table>
+
+      {metaSources.length > 0 && (
+        <>
+          <h2 id="metric-depth">Meta metric depth</h2>
+          <p className="muted" style={{ margin: "0 0 8px", fontSize: 13 }}>
+            Meta reports roughly 90 action types per account, and most are aliases of one another
+            (<code>omni_landing_page_view</code> and <code>landing_page_view</code> are the same number) or
+            vanity engagement. <strong>Standard</strong> stores the conversions an account is judged on —
+            leads, lead-form and pixel leads, landing page views, purchase funnel, calls, messages,
+            engagement — about 35 metric names. <strong>Full</strong> stores everything Meta returns,
+            including its aliases and unnamed <code>offsite_conversion.custom.&lt;pixel-id&gt;</code> events.
+            Nothing is computed or combined either way; this only decides what gets stored.
+          </p>
+          <p className="muted" style={{ margin: "0 0 8px", fontSize: 13 }}>
+            This client currently has <strong>{metaNameCount}</strong> distinct Meta metric names in the
+            last 90 days. Depth applies to future pulls only — use the re-pull below to apply it to history.
+          </p>
+          {depthMsg ? <div style={{ margin: "8px 0", fontSize: 13, color: depthMsg[1] }}>{depthMsg[0]}</div> : null}
+          <table>
+            <thead><tr><th>Ad account</th><th>Depth</th><th></th></tr></thead>
+            <tbody>
+              {metaSources.map((s) => {
+                const d = s.params?.metric_depth === "full" ? "full" : "standard";
+                return (
+                  <tr key={s.id}>
+                    <td className="muted">{s.external_id}</td>
+                    <td>{d === "full" ? <span className="pill pending">full</span> : <span className="pill on_track">standard</span>}</td>
+                    <td>
+                      <form action={setMetricDepth} style={{ margin: 0 }}>
+                        <input type="hidden" name="slug" value={slug} />
+                        <input type="hidden" name="source_id" value={s.id} />
+                        <input type="hidden" name="depth" value={d === "full" ? "standard" : "full"} />
+                        <button type="submit" style={{ margin: 0, padding: "5px 10px", background: "var(--panel2)", color: "var(--muted)", border: "1px solid var(--line)" }}>
+                          Switch to {d === "full" ? "standard" : "full"}
+                        </button>
+                      </form>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {repullMsg ? <div style={{ margin: "8px 0", fontSize: 13, color: repullMsg[1] }}>{repullMsg[0]}</div> : null}
+          <form action={repullClient} className="card" style={{ maxWidth: "none", display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", marginTop: 10 }}>
+            <input type="hidden" name="slug" value={slug} />
+            <label style={{ margin: 0 }}>Re-pull from<input type="date" name="start" defaultValue={yearStart} required style={{ width: "auto" }} /></label>
+            <label style={{ margin: 0 }}>to<input type="date" name="end" defaultValue={today} required style={{ width: "auto" }} /></label>
+            <button type="submit" style={{ margin: 0 }}>Re-pull this client</button>
+            <span className="muted" style={{ fontSize: 12, flexBasis: "100%" }}>
+              Pulls every source for {client.name} over that window and re-writes each day at the current
+              depth. Idempotent — re-running a day overwrites it rather than double-counting.
+            </span>
+          </form>
+        </>
+      )}
 
       <h2 id="custom-metrics">Computed metrics — custom formulas</h2>
       <p className="muted" style={{ margin: "0 0 8px", fontSize: 13 }}>
