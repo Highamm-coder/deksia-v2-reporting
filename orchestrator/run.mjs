@@ -970,10 +970,17 @@ async function main() {
         });
       }
     }
-    statusRows.push({ provider: "google_oauth", status: health.ga4 && health.ga4.ok > 0 ? "ok" : "unknown",
-      expires_at: null, detail: "refresh token — no fixed expiry (dies only if revoked)" });
-    statusRows.push({ provider: "callrail", status: health.callrail && health.callrail.ok > 0 ? "ok" : "unknown",
-      expires_at: null, detail: "static API key — no fixed expiry" });
+    // Google OAuth / CallRail have no introspection endpoint: their status is "did a real
+    // read succeed this run". In a probe-only run no pulls happen, so don't overwrite a
+    // known-good status with "unknown" (that showed as 2 credential issues on 2026-09-04).
+    if (health.ga4 && health.ga4.ok + health.ga4.fail > 0) {
+      statusRows.push({ provider: "google_oauth", status: health.ga4.ok > 0 ? "ok" : "expired",
+        expires_at: null, detail: health.ga4.ok > 0 ? `refresh token — no fixed expiry (dies only if revoked) · ${health.ga4.ok} GA4 reads OK` : `all ${health.ga4.fail} GA4 reads failed — token revoked?` });
+    }
+    if (health.callrail && health.callrail.ok + health.callrail.fail > 0) {
+      statusRows.push({ provider: "callrail", status: health.callrail.ok > 0 ? "ok" : "expired",
+        expires_at: null, detail: health.callrail.ok > 0 ? `static API key — no fixed expiry · ${health.callrail.ok} reads OK` : `all ${health.callrail.fail} CallRail reads failed — key revoked?` });
+    }
     if (statusRows.length) {
       await fetchT(`${SUPABASE_URL}/functions/v1/connector-status`, {
         method: "POST",

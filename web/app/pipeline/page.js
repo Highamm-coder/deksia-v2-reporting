@@ -104,7 +104,8 @@ export default async function Pipeline({ searchParams }) {
   const notFresh = (pipeline || []).filter((r) => r.sync_status !== "fresh" && r.sync_status !== "idle").length;
   const chk = checks?.[0] || null;
   const chkPill = chk ? (chk.status === "ok" ? "fresh" : chk.status === "attention" ? "stale" : "off_track") : "pending";
-  const credIssues = (creds || []).filter((c) => credPill(c)[0] !== "fresh").length;
+  // only expired / expiring credentials are issues; "unknown" (no read this run) is not
+  const credIssues = (creds || []).filter((c) => ["off_track", "stale"].includes(credPill(c)[0])).length;
 
   return (
     <AppShell>
