@@ -26,6 +26,10 @@ if (!CLIENT_ID || !CLIENT_SECRET) {
 const SCOPES = [
   "https://www.googleapis.com/auth/analytics.readonly",
   "https://www.googleapis.com/auth/spreadsheets.readonly",
+  // Google Ads API (developer token in hand 2026-09-04). Consent as the Google user
+  // that manages the Deksia MCC; the resulting refresh token replaces
+  // GOOGLE_OAUTH_REFRESH_TOKEN and serves GA4 + Ads together.
+  "https://www.googleapis.com/auth/adwords",
 ].join(" ");
 
 const PORT = 4599;
