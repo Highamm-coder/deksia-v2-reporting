@@ -27,8 +27,11 @@ const {
   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, INGEST_TOKEN,
   CALLRAIL_API_KEY, META_ACCESS_TOKEN,
   GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, GOOGLE_OAUTH_REFRESH_TOKEN,
+  GOOGLE_ADS_DEVELOPER_TOKEN, GOOGLE_ADS_LOGIN_CUSTOMER_ID,
 } = process.env;
 const GOOGLE_READY = !!(GOOGLE_OAUTH_CLIENT_ID && GOOGLE_OAUTH_CLIENT_SECRET && GOOGLE_OAUTH_REFRESH_TOKEN);
+// Google Ads API (direct pull) needs the OAuth trio + a developer token + the MCC id.
+const GADS_READY = GOOGLE_READY && !!(GOOGLE_ADS_DEVELOPER_TOKEN && GOOGLE_ADS_LOGIN_CUSTOMER_ID);
 
 for (const [k, v] of Object.entries({ SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, INGEST_TOKEN })) {
   if (!v) { console.error(`Missing required env ${k}`); process.exit(1); }
@@ -169,6 +172,42 @@ async function getGoogleToken() {
   if (!res.ok || !out.access_token) throw new Error(`google token: ${res.status} ${JSON.stringify(out).slice(0, 200)}`);
   _googleToken = { token: out.access_token, exp: now + (out.expires_in || 3600) };
   return _googleToken.token;
+}
+
+// ---- Google Ads API: one GAQL query against one customer, all pages ----
+// Versions sunset roughly a year after release, so try newest-first and remember the
+// one that answers; a 404 on the version path is the only thing that moves us on.
+const GADS_VERSIONS = (process.env.GOOGLE_ADS_API_VERSION || "v23,v22,v21,v20").split(",");
+let _gadsVersion = null;
+async function gadsQuery(cid, gaql) {
+  const tok = await getGoogleToken();
+  const id = String(cid).replace(/\D/g, "");
+  const login = String(GOOGLE_ADS_LOGIN_CUSTOMER_ID).replace(/\D/g, "");
+  const versions = _gadsVersion ? [_gadsVersion] : GADS_VERSIONS;
+  let lastErr = null;
+  for (const v of versions) {
+    const r = await fetchT(`https://googleads.googleapis.com/${v}/customers/${id}/googleAds:searchStream`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${tok}`, "developer-token": GOOGLE_ADS_DEVELOPER_TOKEN,
+        "login-customer-id": login, "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ query: gaql }),
+    }, 60000);
+    const text = await r.text();
+    if (r.status === 404 && !_gadsVersion) { lastErr = `${v} not served`; continue; }   // try an older version
+    let body; try { body = JSON.parse(text); } catch { body = text; }
+    if (!r.ok) {
+      const err = Array.isArray(body) ? body[0]?.error : body?.error;
+      const detail = err?.details?.[0]?.errors?.[0]?.message || err?.message || String(text).slice(0, 200);
+      throw new Error(`google ads ${id}: ${r.status} ${detail}`);
+    }
+    _gadsVersion = v;
+    // searchStream returns an array of chunks, each with .results
+    const chunks = Array.isArray(body) ? body : [body];
+    return chunks.flatMap((c) => c.results || []);
+  }
+  throw new Error(`google ads: no API version answered (${lastErr})`);
 }
 
 // ---- CallRail: calls + forms per day, split by source (qualifier) + loose total ----
@@ -717,8 +756,14 @@ async function main() {
         const d = await r.json().catch(() => ({}));
         return r.ok && !d.error ? [true, d.name || "company"] : [false, JSON.stringify(d.error || d).slice(0, 160)];
       }
+      if (src === "google_ads" && GADS_READY) {
+        // direct API: can this credential read the account at all?
+        const rs = await gadsQuery(ext, "SELECT customer.descriptive_name, customer.currency_code, customer.status FROM customer LIMIT 1");
+        const c = rs[0]?.customer || {};
+        return [true, `${c.descriptiveName || "account"} · ${c.currencyCode || ""}${c.status && c.status !== "ENABLED" ? ` (${c.status})` : ""}`];
+      }
       if (src === "google_ads") {
-        // push-based: "reachable" = the Ads Script has posted for this account recently
+        // push-based fallback: "reachable" = the Ads Script has posted for this account recently
         const rows = await sb(`metrics_daily?select=metric_date&source=eq.google_ads`
           + `&account_ext_id=ilike.*${ext.replace(/\D/g, "").slice(-4)}*&order=metric_date.desc&limit=1`);
         const last = rows?.[0]?.metric_date;
