@@ -594,15 +594,28 @@ const gNum = (v) => (v == null ? null : Number(v));
 const gMicros = (v) => (v == null ? null : Number(v) / 1e6);
 const gPct = (v) => (v == null ? null : Number(v) * 100);
 
+// Additive counts. Several report resources are ad-group-level (age_range_view,
+// gender_view, keyword_view, ad_group_ad, search_term_view), so one (day, campaign,
+// qualifier) key can receive several rows — one per ad group. Those are summed: the
+// campaign's total for that age bucket / keyword / device is exactly the sum of its ad
+// groups' numbers, which is what Google itself reports at campaign grain. Rates are
+// never summed. (The script path picked an arbitrary one of the colliding rows.)
+const GADS_ADDITIVE = new Set(["impressions", "clicks", "spend", "conversions", "conversions_value",
+  "all_conversions", "view_through_conversions", "phone_calls", "phone_impressions", "video_views"]);
+
 async function pullGoogleAds(src) {
   if (!GADS_READY) return [];
   const cid = String(src.external_id).replace(/\D/g, "");
-  const rows = [];
+  const byKey = new Map();
   const push = (metric, day, entity, qualifier, value, unit, meta) => {
     if (value == null || Number.isNaN(Number(value))) return;
-    rows.push({ metric_name: metric, metric_date: day, account_ext_id: cid,
-      entity: entity || "", qualifier: qualifier || "", value: Number(value), unit, meta: meta || undefined });
+    const row = { metric_name: metric, metric_date: day, account_ext_id: cid,
+      entity: entity || "", qualifier: qualifier || "", value: Number(value), unit, meta: meta || undefined };
+    const key = `${metric}|${day}|${row.entity}|${row.qualifier}`;
+    const prev = byKey.get(key);
+    if (prev && GADS_ADDITIVE.has(metric)) prev.value += row.value; else byKey.set(key, row);
   };
+  const rows = { get length() { return byKey.size; } };
   const where = (extra) => `WHERE segments.date BETWEEN '${START}' AND '${END}' AND ${extra}`;
   const q = async (gaql) => gadsQuery(cid, gaql);
   const guarded = async (label, fn) => { try { await fn(); } catch (e) { console.warn(`  google_ads ${src.slug}/${cid} ${label} skipped: ${e.message.slice(0, 160)}`); } };
@@ -700,7 +713,8 @@ async function pullGoogleAds(src) {
         push("video_p100_rate", d, c, "rate", gPct(m.videoQuartileP100Rate), "pct");
       }
       break;
-    } catch (e) { if (vi === videoSets.length - 1) console.warn(`  google_ads ${src.slug} video metrics unavailable: ${e.message.slice(0, 120)}`); }
+    } catch (e) { if (vi === videoSets.length - 1 && !pullGoogleAds._videoWarned) { pullGoogleAds._videoWarned = true;
+      console.warn(`  google_ads: video metrics not served on the campaign resource by ${_gadsVersion} (${e.message.slice(0, 80)}) — skipped for all accounts`); } }
   }
 
   // 4. ACCOUNT-level rates (entity='' qualifier='')
@@ -719,12 +733,20 @@ async function pullGoogleAds(src) {
 
   // 5. AD level (drill)
   await guarded("ad drill", async () => {
-    const rs = await q("SELECT segments.date, campaign.name, ad_group.name, ad_group_ad.ad.name, ad_group_ad.ad.type, "
+    const rs = await q("SELECT segments.date, campaign.name, ad_group.name, ad_group_ad.ad.id, ad_group_ad.ad.name, ad_group_ad.ad.type, "
       + "metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions FROM ad_group_ad " + where("metrics.impressions > 0"));
+    // unnamed ads read as their type ("EXPANDED_DYNAMIC_SEARCH_AD"), so several ads in one
+    // group can share a label; add the ad id only when that happens (same rule as Meta).
+    const labelCount = new Map();
+    for (const r of rs) {
+      const k = `${r.segments?.date}|${r.campaign?.name}|${r.adGroup?.name}|${r.adGroupAd?.ad?.name || r.adGroupAd?.ad?.type}`;
+      labelCount.set(k, (labelCount.get(k) || 0) + 1);
+    }
     for (const r of rs) {
       const d = r.segments?.date, c = r.campaign?.name || "", m = r.metrics || {};
       const adName = r.adGroupAd?.ad?.name || r.adGroupAd?.ad?.type || "(unnamed ad)";
-      const qq = `ad:${r.adGroup?.name || ""} › ${adName}`;
+      const k = `${d}|${c}|${r.adGroup?.name}|${r.adGroupAd?.ad?.name || r.adGroupAd?.ad?.type}`;
+      const qq = `ad:${r.adGroup?.name || ""} › ${adName}${labelCount.get(k) > 1 && r.adGroupAd?.ad?.id ? ` [${r.adGroupAd.ad.id}]` : ""}`;
       push("impressions", d, c, qq, gNum(m.impressions), "int");
       push("clicks", d, c, qq, gNum(m.clicks), "int");
       push("spend", d, c, qq, gMicros(m.costMicros), "usd");
@@ -792,7 +814,7 @@ async function pullGoogleAds(src) {
     }
   });
 
-  return rows;
+  return [...byKey.values()];
 }
 
 const PULLERS = { callrail: pullCallRail, ga4: pullGA4, meta: pullMeta, pages: pullPages, google_ads: pullGoogleAds };
@@ -887,7 +909,9 @@ async function main() {
   try {
     if (PROBE_ONLY) throw { skip: true };
     const gaps = await sb("rpc/data_gaps", { method: "POST", body: JSON.stringify({ p_days: 14 }) });
-    const healable = gaps.filter(g => g.source !== "google_ads");
+    // google_ads gaps are healable by API for MCC accounts; script-fed accounts are
+    // skipped inside pullGoogleAds, so a gap that stays after the sweep is theirs.
+    const healable = gaps.filter(g => g.source !== "google_ads" || GADS_READY);
     let healedRows = 0, sweepFails = 0;
     if (healable.length) {
       console.log(`Sentinel: ${gaps.length} gap-day(s) found, ${healable.length} healable — sweeping...`);
