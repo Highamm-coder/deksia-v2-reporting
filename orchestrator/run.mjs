@@ -596,9 +596,9 @@ async function pullPages(src) {
 //   qualifier = "ad:" / "term:" / "kw:" / "ag:" / "dev:" / "net:" / "age:" / "gender:"
 //                                    -> non-additive breakouts (excluded from totals)
 //
-// Accounts granted directly to the user (outside the MCC) are not handled here yet —
-// by decision 2026-09-04 they stay on the per-account script path. They come back
-// as a 403 "permission to access customer", which we treat as "not ours to pull".
+// Accounts granted directly to the user (outside the MCC) are read with themselves as
+// login customer (gadsQuery selfLogin). A 403 that survives that retry means the token's
+// user genuinely has no access — reported, not pulled.
 const isOutsideMcc = (e) => /403 .*permission to access customer/i.test(e?.message || "");
 const gNum = (v) => (v == null ? null : Number(v));
 const gMicros = (v) => (v == null ? null : Number(v) / 1e6);
@@ -627,18 +627,19 @@ async function pullGoogleAds(src) {
   };
   let splitsSkipped = false;
   const where = (extra) => `WHERE segments.date BETWEEN '${START}' AND '${END}' AND ${extra}`;
-  const q = async (gaql) => gadsQuery(cid, gaql);
+  const q = async (gaql) => gadsQuery(cid, gaql, { selfLogin: true });
   const guarded = async (label, fn) => { try { await fn(); } catch (e) { console.warn(`  google_ads ${src.slug}/${cid} ${label} skipped: ${e.message.slice(0, 160)}`); } };
 
   let core;
   try {
     // 1. AD GROUP: authoritative counts — unguarded on purpose (load-bearing)
+    // (q() retries as the account's own login customer: all 12 outside-MCC accounts grant
+    //  the token's user direct access — probed 2026-09-04, enabled on Matt's go.)
     core = await q("SELECT segments.date, campaign.name, campaign.advertising_channel_type, ad_group.name, "
       + "metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions, metrics.conversions_value, "
       + "metrics.all_conversions, metrics.view_through_conversions FROM ad_group " + where("metrics.impressions > 0"));
   } catch (e) {
-    if (isOutsideMcc(e)) { console.log(`  google_ads ${src.slug}/${cid}: outside the MCC — left to its account script`); return []; }
-    throw e;
+    throw e;   // includes a 403 that survived the self-login retry: no access, fail loudly
   }
   const seenCampaignDay = new Set();
   for (const r of core) {
@@ -1034,7 +1035,7 @@ async function main() {
         try {
           const rs = await gadsQuery(ext, "SELECT customer.descriptive_name, customer.currency_code, customer.status FROM customer LIMIT 1", { selfLogin: true });
           const c = rs[0]?.customer || {};
-          return [true, `API${rs.viaLogin === "direct" ? " (direct access, outside MCC — pull not enabled)" : ""} · ${c.descriptiveName || "account"} · ${c.currencyCode || ""}${c.status && c.status !== "ENABLED" ? ` (${c.status})` : ""}`];
+          return [true, `API${rs.viaLogin === "direct" ? " (direct access, outside MCC)" : ""} · ${c.descriptiveName || "account"} · ${c.currencyCode || ""}${c.status && c.status !== "ENABLED" ? ` (${c.status})` : ""}`];
         } catch (e) { if (!isOutsideMcc(e)) throw e; }
       }
       if (src === "google_ads") {
