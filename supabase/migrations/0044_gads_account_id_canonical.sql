@@ -1,0 +1,4 @@
+-- 0044_gads_account_id_canonical.sql — applied live 2026-09-04 via the Supabase MCP; this file is the marker.
+-- Full DDL is in the applied migration of the same name (list_migrations / dashboard).
+-- ingest_rows(): google_ads account_ext_id normalised to digits (scripts posted dashed,
+-- the API posts digits, client_sources is digits). Dashed series merged into digits twins.
