@@ -182,35 +182,45 @@ async function getGoogleToken() {
 // one that answers; a 404 on the version path is the only thing that moves us on.
 const GADS_VERSIONS = (process.env.GOOGLE_ADS_API_VERSION || "v23,v22,v21,v20").split(",");
 let _gadsVersion = null;
-async function gadsQuery(cid, gaql) {
+// MCC accounts are read with the MCC as login-customer-id. An account that granted the
+// token's user access DIRECTLY (outside the MCC) rejects that with a 403 and can only be
+// read with itself as the login customer. That retry is opt-in per call (`selfLogin`):
+// the probe uses it to find out which outside accounts are reachable; the daily pull does
+// NOT, so nothing is pulled from an outside-MCC account until that is switched on.
+async function gadsQuery(cid, gaql, { selfLogin = false } = {}) {
   const tok = await getGoogleToken();
   const id = String(cid).replace(/\D/g, "");
-  const login = String(GOOGLE_ADS_LOGIN_CUSTOMER_ID).replace(/\D/g, "");
+  const mcc = String(GOOGLE_ADS_LOGIN_CUSTOMER_ID).replace(/\D/g, "");
+  const logins = selfLogin ? [mcc, id] : [mcc];
   const versions = _gadsVersion ? [_gadsVersion] : GADS_VERSIONS;
   let lastErr = null;
-  for (const v of versions) {
-    const r = await fetchT(`https://googleads.googleapis.com/${v}/customers/${id}/googleAds:searchStream`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${tok}`, "developer-token": GOOGLE_ADS_DEVELOPER_TOKEN,
-        "login-customer-id": login, "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ query: gaql }),
-    }, 60000);
-    const text = await r.text();
-    if (r.status === 404 && !_gadsVersion) { lastErr = `${v} not served`; continue; }   // try an older version
-    let body; try { body = JSON.parse(text); } catch { body = text; }
-    if (!r.ok) {
-      const err = Array.isArray(body) ? body[0]?.error : body?.error;
-      const detail = err?.details?.[0]?.errors?.[0]?.message || err?.message || String(text).slice(0, 200);
-      throw new Error(`google ads ${id}: ${r.status} ${detail}`);
+  for (const login of logins) {
+    for (const v of versions) {
+      const r = await fetchT(`https://googleads.googleapis.com/${v}/customers/${id}/googleAds:searchStream`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${tok}`, "developer-token": GOOGLE_ADS_DEVELOPER_TOKEN,
+          "login-customer-id": login, "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ query: gaql }),
+      }, 60000);
+      const text = await r.text();
+      if (r.status === 404 && !_gadsVersion) { lastErr = `${v} not served`; continue; }   // try an older version
+      let body; try { body = JSON.parse(text); } catch { body = text; }
+      if (!r.ok) {
+        const err = Array.isArray(body) ? body[0]?.error : body?.error;
+        const detail = err?.details?.[0]?.errors?.[0]?.message || err?.message || String(text).slice(0, 200);
+        if (r.status === 403 && /permission to access customer/i.test(detail) && login !== id && logins.length > 1) { lastErr = detail; break; }
+        throw new Error(`google ads ${id}: ${r.status} ${detail}${login === id ? " (as own login customer)" : ""}`);
+      }
+      _gadsVersion = v;
+      const chunks = Array.isArray(body) ? body : [body];   // searchStream: array of chunks with .results
+      const results = chunks.flatMap((c) => c.results || []);
+      results.viaLogin = login === mcc ? "mcc" : "direct";
+      return results;
     }
-    _gadsVersion = v;
-    // searchStream returns an array of chunks, each with .results
-    const chunks = Array.isArray(body) ? body : [body];
-    return chunks.flatMap((c) => c.results || []);
   }
-  throw new Error(`google ads: no API version answered (${lastErr})`);
+  throw new Error(`google ads ${id}: 403 ${lastErr || "no API version answered"}`);
 }
 
 // ---- CallRail: calls + forms per day, split by source (qualifier) + loose total ----
@@ -1022,9 +1032,9 @@ async function main() {
         // direct API: can this credential read the account at all? Accounts outside the
         // MCC answer 403 — they are script-fed by decision, so fall through to that probe.
         try {
-          const rs = await gadsQuery(ext, "SELECT customer.descriptive_name, customer.currency_code, customer.status FROM customer LIMIT 1");
+          const rs = await gadsQuery(ext, "SELECT customer.descriptive_name, customer.currency_code, customer.status FROM customer LIMIT 1", { selfLogin: true });
           const c = rs[0]?.customer || {};
-          return [true, `API · ${c.descriptiveName || "account"} · ${c.currencyCode || ""}${c.status && c.status !== "ENABLED" ? ` (${c.status})` : ""}`];
+          return [true, `API${rs.viaLogin === "direct" ? " (direct access, outside MCC — pull not enabled)" : ""} · ${c.descriptiveName || "account"} · ${c.currencyCode || ""}${c.status && c.status !== "ENABLED" ? ` (${c.status})` : ""}`];
         } catch (e) { if (!isOutsideMcc(e)) throw e; }
       }
       if (src === "google_ads") {
