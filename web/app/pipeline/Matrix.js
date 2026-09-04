@@ -33,11 +33,13 @@ function accessCell(source, maps, probes) {
 // nothing to report (no spend, no calls); stale = the connector is behind; no_data = never.
 function freshnessCell(maps, health) {
   if (!maps.length) return { state: "none", title: "No account connected" };
-  if (!health || health.sync_status === "no_data") return { state: "bad", title: "Connected, but no data has ever landed" };
+  if (!health || health.sync_status === "no_data") return { state: "bad", title: "Connected, but no data has ever landed and the account could not be read" };
   const last = health.last_metric_date || "never";
   const rows = Number(health.rows_30d || 0).toLocaleString();
   if (health.sync_status === "fresh") return { state: "ok", title: `Fresh · data through ${last} · ${rows} rows in 30d` };
-  if (health.sync_status === "idle") return { state: "warn", title: `Idle · connector OK, nothing to report since ${last}` };
+  if (health.sync_status === "idle") return { state: "warn", title: last === "never"
+      ? "Idle · account is readable but has never had anything to report (e.g. no ads running)"
+      : `Idle · connector OK, nothing to report since ${last}` };
   return { state: "bad", title: `Stale · last data ${last} · connector is behind` };
 }
 
