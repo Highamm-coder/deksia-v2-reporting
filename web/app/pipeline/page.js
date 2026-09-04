@@ -1,6 +1,6 @@
 import { getSupabaseServer } from "../../lib/supabase/server";
 import AppShell from "../_components/AppShell";
-import { runConnectionTest, enqueueGadsBackfill } from "./actions";
+import { runConnectionTest, createBackfill, setBackfillStatus, runBackfillNow } from "./actions";
 import Matrix from "./Matrix";
 
 export const dynamic = "force-dynamic";
@@ -28,6 +28,17 @@ const TEST_MSG = {
   failed: ["Couldn't start the test — GitHub rejected the request (check the dispatch token).", "var(--off)"],
   notoken: ["No GITHUB_DISPATCH_TOKEN set in Vercel — add it to enable one-click testing.", "var(--risk)"],
   forbidden: ["Admins only.", "var(--off)"],
+};
+
+const PLATFORM_NAME = { meta: "Meta", google_ads: "Google Ads", ga4: "GA4", callrail: "CallRail", pages: "Pages" };
+const BF_MSG = {
+  queued: ["Queued — the runner picks it up within two hours.", "var(--on)"],
+  updated: ["Updated.", "var(--on)"],
+  started: ["Runner started — results appear here as chunks finish.", "var(--on)"],
+  notoken: ["No GITHUB_DISPATCH_TOKEN in Vercel — the runner still fires on its own every two hours.", "var(--risk)"],
+  baddate: ["Need both dates as YYYY-MM-DD.", "var(--off)"],
+  forbidden: ["Admins only.", "var(--off)"],
+  failed: ["Couldn't do that.", "var(--off)"],
 };
 
 // Two tabs, two questions. Access: can we read each account? Freshness: did data land?
@@ -62,13 +73,13 @@ function Tabs({ current, counts }) {
 export default async function Pipeline({ searchParams }) {
   const tab = searchParams?.tab === "freshness" ? "freshness" : "access";
   const supabase = getSupabaseServer();
-  const [{ data: pipeline }, { data: creds }, { data: checks }, { data: probes }, { data: isAdmin }, { data: bf }, { data: clients }, { data: sources }] = await Promise.all([
+  const [{ data: pipeline }, { data: creds }, { data: checks }, { data: probes }, { data: isAdmin }, { data: jobs }, { data: clients }, { data: sources }] = await Promise.all([
     supabase.from("v_pipeline_health").select("*").order("slug").order("source"),
     supabase.from("connector_status").select("*").order("provider"),
     supabase.from("integrity_checks").select("*").order("checked_at", { ascending: false }).limit(1),
     supabase.from("connection_probes").select("*").order("source").order("client_slug"),
     supabase.rpc("is_admin"),
-    supabase.from("v_gads_backfill_progress").select("*").order("slug"),
+    supabase.from("v_backfill_jobs").select("*").order("created_at", { ascending: false }).limit(20),
     supabase.from("clients").select("id, slug, name, status").neq("status", "archived").order("name"),
     supabase.from("client_sources").select("client_id, source, external_id, active"),
   ]);
@@ -185,44 +196,79 @@ export default async function Pipeline({ searchParams }) {
             )}
           </div>
 
-          <h2>Google Ads backfill queue</h2>
+          <h2 id="backfills">Backfills</h2>
           <div className="card" style={{ maxWidth: "none" }}>
             <p className="muted" style={{ margin: "0 0 8px", fontSize: 12.5 }}>
-              Queue a date range once; each account&apos;s Ads Script claims up to 20 days per hourly run
-              and drains it unattended. Idempotent — re-queuing a day just rewrites it.
-              {searchParams?.bf && !["forbidden","baddate","failed"].includes(String(searchParams.bf))
-                && <strong style={{ color: "var(--on)" }}> Queued {searchParams.bf} account-days.</strong>}
-              {searchParams?.bf === "failed" && <strong style={{ color: "var(--off)" }}> Couldn&apos;t queue.</strong>}
+              Queue a date range once and the runner works through it a month at a time, every two hours, unattended.
+              Re-pulling a day overwrites it — never double-counts. Google Ads is held to three months a day by Google&apos;s
+              quota; when a platform says &quot;retry later&quot; the job pauses itself and resumes on its own.
+              {BF_MSG[searchParams?.bf] && <strong style={{ color: BF_MSG[searchParams.bf][1] }}> {BF_MSG[searchParams.bf][0]}{searchParams?.why ? ` — ${searchParams.why}` : ""}</strong>}
             </p>
             {isAdmin && (
-              <form action={enqueueGadsBackfill} style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap", margin: 0 }}>
-                <label style={{ margin: 0 }}>From<input name="start" type="date" defaultValue="2026-01-01" style={{ width: "auto" }} /></label>
-                <label style={{ margin: 0 }}>To<input name="end" type="date" style={{ width: "auto" }} /></label>
+              <form action={createBackfill} style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap", margin: 0 }}>
+                <label style={{ margin: 0 }}>Platform
+                  <select name="source" defaultValue="" style={{ width: "auto" }}>
+                    <option value="">all</option><option value="meta">Meta</option><option value="google_ads">Google Ads</option>
+                    <option value="ga4">GA4</option><option value="callrail">CallRail</option><option value="pages">Pages</option>
+                  </select>
+                </label>
+                <label style={{ margin: 0 }}>Client
+                  <select name="client_slug" defaultValue="" style={{ width: "auto", maxWidth: 220 }}>
+                    <option value="">all clients</option>
+                    {(clients || []).map((c) => <option key={c.id} value={c.slug}>{c.name}</option>)}
+                  </select>
+                </label>
+                <label style={{ margin: 0 }}>From<input name="start" type="date" defaultValue={`${new Date().getUTCFullYear()}-01-01`} style={{ width: "auto" }} /></label>
+                <label style={{ margin: 0 }}>To<input name="end" type="date" defaultValue={new Date(Date.now() - 864e5).toISOString().slice(0, 10)} style={{ width: "auto" }} /></label>
+                <label style={{ margin: 0, flex: "1 1 160px" }}>Note<input name="note" placeholder="why (optional)" /></label>
                 <button type="submit" style={{ margin: 0 }}>Queue backfill</button>
+                <button formAction={runBackfillNow} style={{ margin: 0, background: "var(--panel2)", color: "var(--muted)", border: "1px solid var(--line)" }}>Run now</button>
               </form>
             )}
-            {(bf || []).some((r) => r.pending > 0 || r.in_flight > 0) ? (
+            {(jobs || []).length > 0 ? (
               <table style={{ marginTop: 10 }}>
-                <thead><tr><th>Client</th><th>Account</th><th className="num">Done</th><th className="num">Pending</th>
-                  <th className="num">In flight</th><th className="num">Errors</th><th>Oldest outstanding</th><th>Last write</th></tr></thead>
+                <thead><tr><th>Job</th><th>Range</th><th>Progress</th><th>Status</th><th style={{ whiteSpace: "normal" }}>Latest</th><th></th></tr></thead>
                 <tbody>
-                  {(bf || []).filter((r) => r.pending > 0 || r.in_flight > 0 || r.errored > 0).map((r) => (
-                    <tr key={r.cid}>
-                      <td>{r.slug || "—"}</td>
-                      <td className="muted" style={{ fontSize: 12 }}>{r.account_label}</td>
-                      <td className="num">{r.done}</td>
-                      <td className="num">{r.pending}</td>
-                      <td className="num">{r.in_flight}</td>
-                      <td className="num" style={r.errored > 0 ? { color: "var(--off)" } : undefined}>{r.errored}</td>
-                      <td style={{ fontSize: 12 }}>{r.oldest_outstanding || "—"}</td>
-                      <td className="muted" style={{ fontSize: 12 }}>{when(r.last_write)}</td>
-                    </tr>
-                  ))}
+                  {(jobs || []).map((j) => {
+                    const pct = j.chunks ? Math.round((j.done / j.chunks) * 100) : 0;
+                    const pill = j.status === "done" ? "fresh" : j.status === "active" ? (j.deferred > 0 ? "stale" : "on_track") : "pending";
+                    const latest = j.status === "done" ? `${Number(j.rows_written).toLocaleString()} rows`
+                      : j.deferred_until ? `waiting on quota until ${when(j.deferred_until)}`
+                      : j.running > 0 ? `pulling ${j.next_chunk ? j.next_chunk.slice(0, 7) : ""}…`
+                      : j.last_error ? j.last_error
+                      : j.next_chunk ? `next: ${j.next_chunk.slice(0, 7)}` : "—";
+                    return (
+                      <tr key={j.id}>
+                        <td>{j.source ? PLATFORM_NAME[j.source] || j.source : "All platforms"}{j.client_slug ? <span className="muted"> · {j.client_slug}</span> : <span className="muted"> · all clients</span>}
+                          {j.note && <div className="muted" style={{ fontSize: 11, whiteSpace: "normal" }}>{j.note}</div>}</td>
+                        <td style={{ fontSize: 12 }}>{j.start_date} → {j.end_date}</td>
+                        <td>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <div style={{ width: 90, height: 6, background: "var(--panel2)", borderRadius: 3, overflow: "hidden" }}>
+                              <div style={{ width: `${pct}%`, height: "100%", background: j.status === "done" ? "var(--on)" : "var(--txt)" }} />
+                            </div>
+                            <span className="muted" style={{ fontSize: 12 }}>{j.done}/{j.chunks} months</span>
+                          </div>
+                        </td>
+                        <td><span className={`pill ${pill}`}>{j.status === "active" && j.deferred > 0 ? "waiting" : j.status}</span></td>
+                        <td className="muted" style={{ fontSize: 12, whiteSpace: "normal", maxWidth: 320 }}>{latest}</td>
+                        <td>
+                          {isAdmin && j.status !== "done" && j.status !== "cancelled" && (
+                            <form action={setBackfillStatus} style={{ margin: 0, display: "flex", gap: 6 }}>
+                              <input type="hidden" name="job_id" value={j.id} />
+                              <button name="status" value={j.status === "paused" ? "active" : "paused"} style={{ margin: 0, padding: "4px 9px", background: "var(--panel2)", color: "var(--muted)", border: "1px solid var(--line)" }}>
+                                {j.status === "paused" ? "Resume" : "Pause"}
+                              </button>
+                              <button name="status" value="cancelled" style={{ margin: 0, padding: "4px 9px", background: "var(--panel2)", color: "var(--off)", border: "1px solid var(--line)" }}>Cancel</button>
+                            </form>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
-            ) : (bf || []).length ? (
-              <p className="muted" style={{ fontSize: 12.5, margin: "8px 0 0" }}>Queue empty — every queued day has been written.</p>
-            ) : null}
+            ) : <p className="muted" style={{ fontSize: 12.5, margin: "8px 0 0" }}>No backfills queued.</p>}
           </div>
 
           <h2>Detail by account</h2>

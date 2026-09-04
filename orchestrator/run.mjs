@@ -61,8 +61,15 @@ const ONLY_SOURCE = (process.env.ONLY_SOURCE || "").trim();
 // rows the nightly prune removes the same day — so skip them. Set
 // WRITE_BREAKOUTS=1 to force them on regardless.
 const BRK_RETENTION_DAYS = 90;
-const WRITE_BREAKOUTS = process.env.WRITE_BREAKOUTS === "1"
-  || END >= etDate(-BRK_RETENTION_DAYS);
+let WRITE_BREAKOUTS = process.env.WRITE_BREAKOUTS === "1" || END >= etDate(-BRK_RETENTION_DAYS);
+// backfill mode moves the window per chunk, so this is recomputed then
+const recomputeBreakouts = () => { WRITE_BREAKOUTS = process.env.WRITE_BREAKOUTS === "1" || END >= etDate(-BRK_RETENTION_DAYS); };
+
+// BACKFILL_MODE=1: instead of pulling a fixed window, claim chunks from backfill_jobs
+// (queued from the console) and pull each one. Up to MAX_CHUNKS per invocation; a source
+// that answers 429 "Retry in N seconds" is deferred for N seconds and the run moves on.
+const BACKFILL_MODE = process.env.BACKFILL_MODE === "1";
+const MAX_CHUNKS = Number(process.env.MAX_CHUNKS || 3);
 
 // ---- helpers ----
 // fetch with a 30s timeout — fail fast instead of hanging a scheduled run
@@ -861,6 +868,41 @@ async function pullWindow(sources, onlySource, tally, mark) {
 
 const PROBE_ONLY = process.env.PROBE_ONLY === "1" || process.env.PROBE_ONLY === "true";
 
+// Backfill runner. One claimed chunk = one source (or all) × one client (or all) × one
+// calendar month. Rate-limit answers are recognised by their text and turned into a
+// deferral rather than an error, so the job resumes by itself when the quota resets.
+const RUN_URL = process.env.GITHUB_SERVER_URL && process.env.GITHUB_RUN_ID
+  ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}` : null;
+const retryAfterSeconds = (msg) => { const m = /Retry in (\d+) seconds/i.exec(msg || ""); return m ? Number(m[1]) : null; };
+
+async function runBackfillChunks(allSources) {
+  for (let i = 0; i < MAX_CHUNKS; i++) {
+    const claimed = await sb("rpc/claim_backfill_chunk", { method: "POST", body: "{}" });
+    const c = Array.isArray(claimed) ? claimed[0] : claimed;
+    if (!c || !c.chunk_id) { console.log(i === 0 ? "Backfill: nothing claimable right now." : `Backfill: queue drained after ${i} chunk(s).`); return; }
+    START = c.chunk_start; END = c.chunk_end; recomputeBreakouts();
+    const scope = allSources.filter((s) => (!c.client_slug || s.clients.slug === c.client_slug));
+    console.log(`Backfill chunk #${c.chunk_id}: ${c.source || "all sources"} · ${c.client_slug || "all clients"} · ${START}..${END} (${scope.length} mapping(s))`);
+    const errors = [];
+    let rows = 0;
+    await mapLimit(scope.filter((s) => PULLERS[s.source] && (!c.source || s.source === c.source)), 5, async (s) => {
+      const src = { ...s, slug: s.clients.slug };
+      try {
+        const r = await PULLERS[src.source](src);
+        rows += await ingest(src.source, src.slug, r.filter((x) => x.value != null));
+      } catch (e) { errors.push(`${src.slug}/${src.source}: ${e.message}`); }
+    });
+    const rateLimited = errors.map(retryAfterSeconds).filter(Boolean);
+    let status = "done", err = null, retry = null;
+    if (rateLimited.length) { status = "deferred"; retry = Math.max(...rateLimited) + 300; err = `rate limited — ${rateLimited.length} account(s) told to retry in ${Math.round(retry / 3600)} h`; }
+    else if (errors.length) { status = "error"; err = `${errors.length} failure(s): ${errors.slice(0, 3).join(" | ")}`; }
+    await sb("rpc/complete_backfill_chunk", { method: "POST", body: JSON.stringify({
+      p_chunk: c.chunk_id, p_status: status, p_rows: rows, p_error: err, p_retry_seconds: retry, p_run_url: RUN_URL }) });
+    console.log(`  → ${status}: ${rows} rows${err ? ` · ${err}` : ""}`);
+    if (status === "deferred") return;          // no point claiming the next one from the same source
+  }
+}
+
 async function main() {
   console.log(PROBE_ONLY
     ? "Connection test (probe only — no pulls)"
@@ -875,6 +917,8 @@ async function main() {
   }
   const tally = {}, health = {}; // health[source] = {ok, fail}
   const mark = (source, ok) => { const h = health[source] = health[source] || { ok: 0, fail: 0 }; ok ? h.ok++ : h.fail++; };
+
+  if (BACKFILL_MODE) { await runBackfillChunks(sources); return; }
 
   // bounded parallelism: 5 concurrent pulls. google_ads is pulled by API for MCC accounts
   // when GOOGLE_ADS_* is configured; accounts outside the MCC still arrive via their
