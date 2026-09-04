@@ -923,7 +923,19 @@ async function main() {
   // bounded parallelism: 5 concurrent pulls. google_ads is pulled by API for MCC accounts
   // when GOOGLE_ADS_* is configured; accounts outside the MCC still arrive via their
   // own Ads Script posting directly.
-  if (!PROBE_ONLY) await pullWindow(sources, ONLY_SOURCE || null, tally, mark);
+  // A source a vendor has told us to back off from (recorded by the backfill runner as a
+  // deferred chunk) is skipped today rather than failing 25 accounts and emailing about it;
+  // the 14-day sentinel re-pulls the missed day once the quota is back.
+  let daily = sources;
+  try {
+    const parked = await sb("backfill_chunks?select=retry_after,backfill_jobs(source)&status=eq.deferred&retry_after=gt." + new Date().toISOString());
+    const parkedSources = new Set((parked || []).map((r) => r.backfill_jobs?.source).filter(Boolean));
+    if (parkedSources.size) {
+      console.warn(`Skipping ${[...parkedSources].join(", ")} today — vendor asked us to retry later (until ${(parked || []).map((r) => r.retry_after).sort().at(-1)}); sentinel heals the gap`);
+      daily = sources.filter((s) => !parkedSources.has(s.source));
+    }
+  } catch (e) { /* never block the run on this check */ }
+  if (!PROBE_ONLY) await pullWindow(daily, ONLY_SOURCE || null, tally, mark);
 
   console.log("Ingested rows:", JSON.stringify(tally));
   console.log("Source health:", JSON.stringify(health));
@@ -1090,7 +1102,11 @@ async function main() {
           const rs = await gadsQuery(ext, "SELECT customer.descriptive_name, customer.currency_code, customer.status FROM customer LIMIT 1", { selfLogin: true });
           const c = rs[0]?.customer || {};
           return [true, `API${rs.viaLogin === "direct" ? " (direct access, outside MCC)" : ""} · ${c.descriptiveName || "account"} · ${c.currencyCode || ""}${c.status && c.status !== "ENABLED" ? ` (${c.status})` : ""}`];
-        } catch (e) { if (!isOutsideMcc(e)) throw e; }
+        } catch (e) {
+          // a quota answer says nothing about access — don't cry wolf (same rule as Pages)
+          if (/\b429\b|Too many requests/i.test(e.message)) return [true, "rate-limited by Google Ads API — not tested this run"];
+          if (!isOutsideMcc(e)) throw e;
+        }
       }
       if (src === "google_ads") {
         // push-based fallback: "reachable" = the Ads Script has posted for this account recently
