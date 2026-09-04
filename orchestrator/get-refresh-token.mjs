@@ -30,6 +30,12 @@ const SCOPES = [
   // that manages the Deksia MCC; the resulting refresh token replaces
   // GOOGLE_OAUTH_REFRESH_TOKEN and serves GA4 + Ads together.
   "https://www.googleapis.com/auth/adwords",
+  // Search Console + YouTube (organic), added 2026-09-04 for the next two integrations.
+  "https://www.googleapis.com/auth/webmasters.readonly",
+  "https://www.googleapis.com/auth/youtube.readonly",
+  "https://www.googleapis.com/auth/yt-analytics.readonly",
+  // identity: lets the Connections page show WHICH Google user the token belongs to
+  "openid", "https://www.googleapis.com/auth/userinfo.email",
 ].join(" ");
 
 const PORT = 4599;
