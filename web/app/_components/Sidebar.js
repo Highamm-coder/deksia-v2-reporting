@@ -6,6 +6,7 @@ import { logout } from "../login/actions";
 const NAV = [
   ["/", "Scoreboard", "◎"],
   ["/pipeline", "Pipeline health", "◧"],
+  ["/connections", "Connections", "⛓"],
   ["/clients", "Clients", "▤"],
   ["/account", "Account", "⚙"],
 ];

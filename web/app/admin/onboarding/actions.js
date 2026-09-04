@@ -3,7 +3,11 @@ import { getSupabaseServer } from "../../../lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-const SOURCES = ["google_ads", "meta", "ga4", "callrail", "pages"];
+// the source registry (public.source_methods) is authoritative; see migration 0051
+async function validSources(supabase) {
+  const { data } = await supabase.from("v_sources").select("source").neq("source", "manual");
+  return (data || []).map((r) => r.source);
+}
 const back = (q = "") => { revalidatePath("/admin/onboarding"); redirect(`/admin/onboarding${q}`); };
 
 async function adminGuard(supabase) {
@@ -34,7 +38,7 @@ export async function addSource(formData) {
   const label = String(formData.get("label") || "").trim();
   const brand = String(formData.get("brand") || "").trim();
   const account_id = String(formData.get("account_id") || "").trim(); // CallRail account
-  if (!SOURCES.includes(source) || !external_id) return back("?err=source");
+  if (!(await validSources(supabase)).includes(source) || !external_id) return back("?err=source");
 
   const params = { confirmed: true };
   if (label) params.label = label;

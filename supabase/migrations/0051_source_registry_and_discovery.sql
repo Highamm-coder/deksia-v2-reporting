@@ -1,0 +1,4 @@
+-- 0051_source_registry_and_discovery.sql — applied live 2026-09-04. source_methods gains label/provider/kind/
+-- lag_days/active/sort and becomes the one source registry (edge fn, onboarding, matrix, backfill form read it).
+-- Seeds search_console + youtube (inactive until built). connector_discovery (what each credential can see) and
+-- connector_status.identity/scopes for the Connections page.

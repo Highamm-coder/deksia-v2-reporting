@@ -1127,6 +1127,79 @@ async function main() {
     } catch (e) { return [false, e.message.slice(0, 160)]; }
   }
 
+  // ---- discovery + identity: what does each credential SEE, and who is it? ----------------
+  // Written to connector_discovery / connector_status.identity so the Connections page can
+  // show "discovered but not mapped" accounts and which user each token belongs to.
+  // Every call is optional: a missing scope or a throttle just leaves that list empty.
+  try {
+    const found = [];   // {provider, source, external_id, name, extra}
+    const add = (provider, source, id, name, extra) => { if (id) found.push({ provider, source, external_id: String(id), name: name || null, extra: extra || null, last_seen: new Date().toISOString() }); };
+    const identities = {};
+    if (META_ACCESS_TOKEN) {
+      try {
+        const me = await fetchT(`${META_API}/me?fields=id,name&access_token=${META_ACCESS_TOKEN}`, {}, 15000).then((r) => r.json());
+        if (me?.name) identities.meta = `${me.name} (user ${me.id})`;
+        const acc = await fetchT(`${META_API}/me/adaccounts?fields=account_id,name,account_status,business_name&limit=200&access_token=${META_ACCESS_TOKEN}`, {}, 20000).then((r) => r.json());
+        for (const a of acc?.data || []) add("meta", "meta", a.account_id, a.name, { status: a.account_status, business: a.business_name });
+        const pg = await fetchT(`${META_API}/me/accounts?fields=id,name,category&limit=200&access_token=${META_ACCESS_TOKEN}`, {}, 20000).then((r) => r.json());
+        for (const p of pg?.data || []) add("meta", "pages", p.id, p.name, { category: p.category });
+      } catch (e) { console.warn("discovery meta:", e.message.slice(0, 120)); }
+    }
+    if (GOOGLE_READY) {
+      const tok = await getGoogleToken();
+      const gj = (url) => fetchT(url, { headers: { Authorization: `Bearer ${tok}` } }, 20000).then((r) => r.json());
+      try { const u = await gj("https://openidconnect.googleapis.com/v1/userinfo"); if (u?.email) identities.google = u.email; } catch { /* scope not granted yet */ }
+      try {
+        const s = await gj("https://analyticsadmin.googleapis.com/v1beta/accountSummaries?pageSize=200");
+        for (const a of s?.accountSummaries || []) for (const p of a.propertySummaries || [])
+          add("google", "ga4", String(p.property || "").replace("properties/", ""), p.displayName, { account: a.displayName });
+      } catch (e) { console.warn("discovery ga4:", e.message.slice(0, 100)); }
+      try {
+        const s = await gj("https://www.googleapis.com/webmasters/v3/sites");
+        for (const x of s?.siteEntry || []) add("google", "search_console", x.siteUrl, x.siteUrl, { permission: x.permissionLevel });
+      } catch (e) { console.warn("discovery search_console:", e.message.slice(0, 100)); }
+      try {
+        const s = await gj("https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&mine=true&maxResults=50");
+        for (const c of s?.items || []) add("google", "youtube", c.id, c.snippet?.title, { subscribers: c.statistics?.subscriberCount, managed: true });
+      } catch (e) { console.warn("discovery youtube:", e.message.slice(0, 100)); }
+      if (GADS_READY) {
+        try {
+          const rs = await gadsQuery(GOOGLE_ADS_LOGIN_CUSTOMER_ID,
+            "SELECT customer_client.id, customer_client.descriptive_name, customer_client.status, customer_client.manager, customer_client.level FROM customer_client WHERE customer_client.level <= 1");
+          for (const r of rs) { const c = r.customerClient || {}; if (!c.manager) add("google", "google_ads", c.id, c.descriptiveName, { status: c.status, via: "mcc" }); }
+        } catch (e) { console.warn("discovery google_ads (mcc):", e.message.slice(0, 100)); }
+      }
+    }
+    if (CALLRAIL_API_KEY) {
+      try {
+        const a = await fetchT("https://api.callrail.com/v3/a.json", { headers: { Authorization: `Token token=${CALLRAIL_API_KEY}` } }, 15000).then((r) => r.json());
+        identities.callrail = (a?.accounts || []).map((x) => x.name).join(", ") || null;
+        for (const acct of a?.accounts || []) {
+          const cs = await fetchT(`https://api.callrail.com/v3/a/${acct.id}/companies.json?per_page=250`, { headers: { Authorization: `Token token=${CALLRAIL_API_KEY}` } }, 20000).then((r) => r.json());
+          for (const c of cs?.companies || []) add("callrail", "callrail", c.id, c.name, { account_id: acct.id, status: c.status });
+        }
+      } catch (e) { console.warn("discovery callrail:", e.message.slice(0, 120)); }
+    }
+    if (found.length) {
+      for (let i = 0; i < found.length; i += 200) {
+        await sb("connector_discovery?on_conflict=source,external_id", { method: "POST",
+          headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(found.slice(i, i + 200)) });
+      }
+    }
+    for (const [provider, identity] of Object.entries(identities)) {
+      if (identity) await sb(`connector_status?provider=eq.${provider}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ identity }) });
+    }
+    // Google: which scopes does the refresh token actually carry? (tokeninfo is public)
+    if (GOOGLE_READY) {
+      try {
+        const ti = await fetchT(`https://oauth2.googleapis.com/tokeninfo?access_token=${await getGoogleToken()}`, {}, 10000).then((r) => r.json());
+        if (ti?.scope) await sb("connector_status?provider=eq.google_oauth", { method: "PATCH", headers: { Prefer: "return=minimal" },
+          body: JSON.stringify({ scopes: String(ti.scope).split(" ").map((x) => x.replace("https://www.googleapis.com/auth/", "")) }) });
+      } catch { /* optional */ }
+    }
+    console.log(`Discovery: ${found.length} account(s) visible across ${Object.keys(identities).length} credential identit${Object.keys(identities).length === 1 ? "y" : "ies"}`);
+  } catch (e) { console.warn("discovery failed:", e.message); }
+
   try {
     const allMappings = await sb(
       "client_sources?select=source,external_id,params,active,clients!inner(slug,status)&clients.status=eq.active");

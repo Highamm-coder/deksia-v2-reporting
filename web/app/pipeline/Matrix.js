@@ -4,8 +4,9 @@
 //   freshness  — did data land recently? (v_pipeline_health sync_status)
 import Link from "next/link";
 
+// fallback only — the page passes the live registry (v_sources) as `platforms`
 export const PLATFORMS = [
-  ["meta", "Meta"], ["google_ads", "Google Ads"], ["ga4", "GA4"], ["callrail", "CallRail"], ["pages", "Pages"],
+  ["meta", "Meta Ads"], ["google_ads", "Google Ads"], ["ga4", "GA4"], ["callrail", "CallRail"], ["pages", "Facebook Pages"],
 ];
 
 const COLOR = { ok: "var(--on)", warn: "var(--risk)", bad: "var(--off)" };
@@ -43,10 +44,11 @@ function freshnessCell(maps, health) {
   return { state: "bad", title: `Stale · last data ${last} · connector is behind` };
 }
 
-export default function Matrix({ mode, clients, sources, probes, health }) {
+export default function Matrix({ mode, clients, sources, probes, health, platforms }) {
+  const COLS = platforms && platforms.length ? platforms : PLATFORMS;
   const rows = (clients || []).map((c) => ({
     ...c,
-    cells: PLATFORMS.map(([src]) => {
+    cells: COLS.map(([src]) => {
       const maps = (sources || []).filter((s) => s.client_id === c.id && s.source === src && s.active);
       return mode === "access"
         ? accessCell(src, maps, (probes || []).filter((p) => p.client_slug === c.slug && p.source === src))
@@ -60,7 +62,7 @@ export default function Matrix({ mode, clients, sources, probes, health }) {
         <thead>
           <tr>
             <th style={{ width: "34%" }}>Client</th>
-            {PLATFORMS.map(([src, label]) => <th key={src} style={{ textAlign: "center" }}>{label}</th>)}
+            {COLS.map(([src, label]) => <th key={src} style={{ textAlign: "center" }}>{label}</th>)}
           </tr>
         </thead>
         <tbody>
@@ -71,7 +73,7 @@ export default function Matrix({ mode, clients, sources, probes, health }) {
                 {r.status !== "active" && <span className="muted" style={{ fontSize: 11 }}> · {r.status}</span>}
               </td>
               {r.cells.map((cell, i) => (
-                <td key={PLATFORMS[i][0]} style={{ textAlign: "center" }}><Dot state={cell.state} title={cell.title} /></td>
+                <td key={COLS[i][0]} style={{ textAlign: "center" }}><Dot state={cell.state} title={cell.title} /></td>
               ))}
             </tr>
           ))}

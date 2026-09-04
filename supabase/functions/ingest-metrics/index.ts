@@ -6,7 +6,14 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const VALID_SOURCES = ["google_ads", "ga4", "meta", "callrail", "pages"];
+// Source registry lives in public.source_methods (see migration 0051); cached per isolate.
+let _sources: string[] | null = null;
+async function validSources(supabase: any): Promise<string[]> {
+  if (_sources) return _sources;
+  const { data } = await supabase.from("source_methods").select("source").eq("active", true);
+  _sources = (data ?? []).map((r: any) => r.source).filter((x: string) => x !== "manual");
+  return _sources.length ? _sources : ["google_ads", "ga4", "meta", "callrail", "pages"];
+}
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -41,7 +48,7 @@ Deno.serve(async (req: Request) => {
   try { body = await req.json(); } catch { return json({ error: "invalid JSON" }, 400); }
 
   const source = String(body.source ?? "").toLowerCase();
-  if (!VALID_SOURCES.includes(source)) return json({ error: `bad source '${source}'` }, 400);
+  if (!(await validSources(supabase)).includes(source)) return json({ error: `bad source '${source}'` }, 400);
   const rows = Array.isArray(body.rows) ? body.rows : [];
   if (rows.length === 0) return json({ error: "no rows" }, 400);
 

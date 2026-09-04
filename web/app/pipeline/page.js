@@ -30,7 +30,7 @@ const TEST_MSG = {
   forbidden: ["Admins only.", "var(--off)"],
 };
 
-const PLATFORM_NAME = { meta: "Meta", google_ads: "Google Ads", ga4: "GA4", callrail: "CallRail", pages: "Pages" };
+const PLATFORM_NAME = { meta: "Meta Ads", google_ads: "Google Ads", ga4: "GA4", callrail: "CallRail", pages: "Facebook Pages", search_console: "Search Console", youtube: "YouTube" };
 const BF_MSG = {
   queued: ["Queued — the runner picks it up within two hours.", "var(--on)"],
   updated: ["Updated.", "var(--on)"],
@@ -73,7 +73,7 @@ function Tabs({ current, counts }) {
 export default async function Pipeline({ searchParams }) {
   const tab = searchParams?.tab === "freshness" ? "freshness" : "access";
   const supabase = getSupabaseServer();
-  const [{ data: pipeline }, { data: creds }, { data: checks }, { data: probes }, { data: isAdmin }, { data: jobs }, { data: clients }, { data: sources }] = await Promise.all([
+  const [{ data: pipeline }, { data: creds }, { data: checks }, { data: probes }, { data: isAdmin }, { data: jobs }, { data: clients }, { data: sources }, { data: sourcesReg }] = await Promise.all([
     supabase.from("v_pipeline_health").select("*").order("slug").order("source"),
     supabase.from("connector_status").select("*").order("provider"),
     supabase.from("integrity_checks").select("*").order("checked_at", { ascending: false }).limit(1),
@@ -82,7 +82,9 @@ export default async function Pipeline({ searchParams }) {
     supabase.from("v_backfill_jobs").select("*").order("created_at", { ascending: false }).limit(20),
     supabase.from("clients").select("id, slug, name, status").neq("status", "archived").order("name"),
     supabase.from("client_sources").select("client_id, source, external_id, active"),
+    supabase.from("v_sources").select("source, label, active").neq("source", "manual"),
   ]);
+  const registry = (sourcesReg || []).filter((r) => r.active).map((r) => [r.source, r.label]);
 
   let testMsg = TEST_MSG[searchParams?.test];
   if (searchParams?.test === "failed" && searchParams?.why) {
@@ -124,7 +126,7 @@ export default async function Pipeline({ searchParams }) {
       {tab === "access" ? (
         <>
           <h2>Which accounts we can read {probedAt && <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>· tested {when(probedAt)}</span>}</h2>
-          <Matrix mode="access" clients={clients} sources={sources} probes={probeRows} />
+          <Matrix mode="access" clients={clients} sources={sources} probes={probeRows} platforms={registry} />
 
           {unreachable.length > 0 && (
             <>
@@ -171,7 +173,7 @@ export default async function Pipeline({ searchParams }) {
       ) : (
         <>
           <h2>Did data land — {fresh}/{pipeline?.length ?? 0} fresh</h2>
-          <Matrix mode="freshness" clients={clients} sources={sources} health={pipeline} />
+          <Matrix mode="freshness" clients={clients} sources={sources} health={pipeline} platforms={registry} />
 
           <h2>Data integrity</h2>
           <div className="card" style={{ maxWidth: "none", display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
@@ -209,8 +211,8 @@ export default async function Pipeline({ searchParams }) {
               <form action={createBackfill} style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap", margin: 0 }}>
                 <label style={{ margin: 0 }}>Platform
                   <select name="source" defaultValue="" style={{ width: "auto" }}>
-                    <option value="">all</option><option value="meta">Meta</option><option value="google_ads">Google Ads</option>
-                    <option value="ga4">GA4</option><option value="callrail">CallRail</option><option value="pages">Pages</option>
+                    <option value="">all</option>
+                    {registry.map(([src, label]) => <option key={src} value={src}>{label}</option>)}
                   </select>
                 </label>
                 <label style={{ margin: 0 }}>Client
