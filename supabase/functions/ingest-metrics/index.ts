@@ -1,4 +1,4 @@
-// ingest-metrics — generic idempotent ingest into public.metrics_daily.
+// ingest-metrics — generic idempotent ingest; storage is the star behind the metrics_daily view (ingest_rows RPC).
 // verify_jwt=false; custom bearer auth against Vault `ingest_token` (write path only).
 // Body: { source, rows:[{metric_name, metric_date, value, unit?, meta?, account_ext_id?, entity?, qualifier?}],
 //   client_id? | client_slug? | cid? }
@@ -76,36 +76,28 @@ Deno.serve(async (req: Request) => {
   ).slice(0, 60);
 
   const payload = rows.map((r: any) => ({
-    client_id: clientId, source,
     metric_name: String(r.metric_name),
     metric_date: String(r.metric_date),
     account_ext_id: String(r.account_ext_id ?? ""),
     entity: String(r.entity ?? ""),
     qualifier: String(r.qualifier ?? ""),
     value: r.value === null || r.value === undefined ? null : Number(r.value),
-    unit: r.unit ?? null, meta: { ...(r.meta ?? {}), by: writer },
-    ingested_at: new Date().toISOString(),
+    unit: r.unit ?? null,
+    meta: r.meta ?? {},
   }));
   const bad = payload.find((r) => !r.metric_name || !/^\d{4}-\d{2}-\d{2}$/.test(r.metric_date));
   if (bad) return json({ error: "each row needs metric_name and metric_date YYYY-MM-DD" }, 400);
 
-  // Self-describing: platforms emit metric names we can't enumerate up front (one per
-  // pixel action type). Register unseen ones with an inferred aggregation so a
-  // cost-per or a rate is never summed. Cheap: one call per POST, distinct names only.
-  const seen = new Map<string, string>();
-  for (const r of payload) if (!seen.has(r.metric_name)) seen.set(r.metric_name, r.unit ?? "int");
-  try {
-    await supabase.rpc("ensure_metric_defs", {
-      p_source: source,
-      p_rows: [...seen].map(([metric, unit]) => ({ metric, unit })),
-    });
-  } catch (_e) { /* never block ingest on metadata */ }
-
-  const { error } = await supabase.from("metrics_daily")
-    .upsert(payload, { onConflict: "client_id,source,metric_name,metric_date,account_ext_id,entity,qualifier" });
+  // Storage is a star (series / metric_definitions / ingest_batches / fact_daily) and
+  // public.metrics_daily is a view over it, so the write goes through ingest_rows():
+  // it registers unseen metric names (self-describing), opens one provenance batch for
+  // this POST, interns any new series, and upserts the facts idempotently.
+  const { data: n, error } = await supabase.rpc("ingest_rows", {
+    p_client_id: clientId, p_source: source, p_writer: writer, p_rows: payload,
+  });
   if (error) {
-    console.error("upsert failed:", error.message);
+    console.error("ingest_rows failed:", error.message);
     return json({ error: "upsert failed" }, 500);
   }
-  return json({ ok: true, client_id: clientId, source, rows_upserted: payload.length });
+  return json({ ok: true, client_id: clientId, source, rows_upserted: n ?? payload.length });
 });

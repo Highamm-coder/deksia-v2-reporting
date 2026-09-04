@@ -119,12 +119,11 @@ export async function logManualMetric(formData) {
     if (defErr) return done(slug, "?error=log");
   }
 
-  const { error } = await supabase.from("metrics_daily").upsert({
-    client_id, source: "manual", metric_name, metric_date,
-    account_ext_id: "", entity: "", qualifier: "",
-    value, unit,
-    meta: { by, ...(note ? { note } : {}) },
-    ingested_at: new Date().toISOString(),
-  }, { onConflict: "client_id,source,metric_name,metric_date,account_ext_id,entity,qualifier" });
+  // metrics_daily is a view over the star schema; writes go through the RPC, which
+  // forces source='manual' and stamps the signed-in user as the writer.
+  const { error } = await supabase.rpc("upsert_manual_metric", {
+    p_client_id: client_id, p_metric_name: metric_name, p_metric_date: metric_date,
+    p_value: value, p_unit: unit, p_note: note || null,
+  });
   return done(slug, error ? "?error=log" : "?logged=1");
 }
