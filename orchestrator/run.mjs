@@ -615,7 +615,7 @@ async function pullGoogleAds(src) {
     const prev = byKey.get(key);
     if (prev && GADS_ADDITIVE.has(metric)) prev.value += row.value; else byKey.set(key, row);
   };
-  const rows = { get length() { return byKey.size; } };
+  let splitsSkipped = false;
   const where = (extra) => `WHERE segments.date BETWEEN '${START}' AND '${END}' AND ${extra}`;
   const q = async (gaql) => gadsQuery(cid, gaql);
   const guarded = async (label, fn) => { try { await fn(); } catch (e) { console.warn(`  google_ads ${src.slug}/${cid} ${label} skipped: ${e.message.slice(0, 160)}`); } };
@@ -767,6 +767,14 @@ async function pullGoogleAds(src) {
     }
   });
   const M4 = "metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions";
+  // Non-additive splits (term/kw/dev/net/age/gender) are pruned after 90 days, same as
+  // Meta's brk: rows — so for a window already outside that horizon they are not pulled
+  // at all (~300k rows/month that the nightly prune would delete). WRITE_BREAKOUTS=1 forces.
+  await breakout("asset groups",   // PMax asset groups: kept long-term (the only way inside PMax)
+    `SELECT segments.date, campaign.name, asset_group.name, ${M4}, metrics.conversions_value FROM asset_group ` + where("metrics.impressions > 0"),
+    (r) => `ag:${r.assetGroup?.name || "(unnamed)"}`,
+    (r, d, c, qq, m) => push("conversions_value", d, c, qq, gNum(m.conversionsValue), "usd"));
+  if (!WRITE_BREAKOUTS) { splitsSkipped = true; } else {
   await breakout("search terms",
     `SELECT segments.date, campaign.name, search_term_view.search_term, ${M4} FROM search_term_view ` + where("metrics.impressions > 0"),
     (r) => `term:${r.searchTermView?.searchTerm || "(unknown)"}`);
@@ -784,10 +792,6 @@ async function pullGoogleAds(src) {
           landing_page: qi.postClickQualityScore || null, expected_ctr: qi.searchPredictedCtr || null });
       }
     });
-  await breakout("asset groups",
-    `SELECT segments.date, campaign.name, asset_group.name, ${M4}, metrics.conversions_value FROM asset_group ` + where("metrics.impressions > 0"),
-    (r) => `ag:${r.assetGroup?.name || "(unnamed)"}`,
-    (r, d, c, qq, m) => push("conversions_value", d, c, qq, gNum(m.conversionsValue), "usd"));
   await breakout("device",
     `SELECT segments.date, campaign.name, segments.device, ${M4} FROM campaign ` + where("metrics.impressions > 0"),
     (r) => `dev:${String(r.segments?.device || "UNKNOWN").toLowerCase()}`);
@@ -800,6 +804,7 @@ async function pullGoogleAds(src) {
   await breakout("gender",
     `SELECT segments.date, campaign.name, ad_group_criterion.gender.type, ${M4} FROM gender_view ` + where("metrics.impressions > 0"),
     (r) => `gender:${String(r.adGroupCriterion?.gender?.type || "UNKNOWN").replace(/^GENDER_/, "").toLowerCase()}`);
+  }
 
   // 11. CONVERSION ACTIONS (name + category)
   await guarded("conversion actions", async () => {
@@ -814,6 +819,8 @@ async function pullGoogleAds(src) {
     }
   });
 
+  if (splitsSkipped && !pullGoogleAds._splitNote) { pullGoogleAds._splitNote = true;
+    console.log(`  google_ads: window ends before the 90-day breakout horizon — term/kw/dev/net/age/gender splits not pulled`); }
   return [...byKey.values()];
 }
 
