@@ -1,6 +1,7 @@
 import { getSupabaseServer } from "../../lib/supabase/server";
 import AppShell from "../_components/AppShell";
 import { runConnectionTest, enqueueGadsBackfill } from "./actions";
+import AccessMatrix from "./AccessMatrix";
 
 export const dynamic = "force-dynamic";
 const num = (v, d = 0) => (v == null ? "—" : Number(v).toLocaleString(undefined, { maximumFractionDigits: d }));
@@ -30,13 +31,15 @@ const TEST_MSG = {
 
 export default async function Pipeline({ searchParams }) {
   const supabase = getSupabaseServer();
-  const [{ data: pipeline }, { data: creds }, { data: checks }, { data: probes }, { data: isAdmin }, { data: bf }] = await Promise.all([
+  const [{ data: pipeline }, { data: creds }, { data: checks }, { data: probes }, { data: isAdmin }, { data: bf }, { data: clients }, { data: sources }] = await Promise.all([
     supabase.from("v_pipeline_health").select("*").order("slug").order("source"),
     supabase.from("connector_status").select("*").order("provider"),
     supabase.from("integrity_checks").select("*").order("checked_at", { ascending: false }).limit(1),
     supabase.from("connection_probes").select("*").order("source").order("client_slug"),
     supabase.rpc("is_admin"),
     supabase.from("v_gads_backfill_progress").select("*").order("slug"),
+    supabase.from("clients").select("id, slug, name, status").neq("status", "archived").order("name"),
+    supabase.from("client_sources").select("client_id, source, external_id, active"),
   ]);
   let testMsg = TEST_MSG[searchParams?.test];
   if (searchParams?.test === "failed" && searchParams?.why) {
@@ -69,6 +72,9 @@ export default async function Pipeline({ searchParams }) {
         )}
       </div>
       {testMsg && <div style={{ margin: "6px 0 0", fontSize: 13, color: testMsg[1] }}>{testMsg[0]}</div>}
+
+      <h2>Access — who we can read, by platform</h2>
+      <AccessMatrix clients={clients} sources={sources} probes={probeRows} health={pipeline} />
 
       <h2>Connections {probedAt && <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>
         · last tested {new Date(probedAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>}</h2>
