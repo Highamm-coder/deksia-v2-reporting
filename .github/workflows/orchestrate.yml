@@ -21,6 +21,9 @@ on:
       only_slug:
         description: "Pull one client only (slug). Blank = every active client."
         required: false
+      only_source:
+        description: "Pull one source only (meta, ga4, callrail, pages, google_ads). Blank = all."
+        required: false
       probe_only:
         description: "Connection test only — probe every mapped account, skip pulls."
         required: false
@@ -52,5 +55,6 @@ jobs:
           RUN_START: ${{ github.event.inputs.run_start }}
           RUN_END: ${{ github.event.inputs.run_end }}
           ONLY_SLUG: ${{ github.event.inputs.only_slug }}
+          ONLY_SOURCE: ${{ github.event.inputs.only_source }}
           PROBE_ONLY: ${{ inputs.probe_only && '1' || '' }}
         run: node orchestrator/run.mjs

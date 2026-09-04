@@ -21,6 +21,7 @@
 //                           insights; + pages_read_engagement/read_insights for Pages)
 //   RUN_START / RUN_END     optional YYYY-MM-DD window override (default = yesterday ET)
 //   ONLY_SLUG               optional client slug — pull that client only
+//   ONLY_SOURCE             optional source name — pull that source only
 //   WRITE_BREAKOUTS=1       force Meta brk: breakouts even outside the 90-day horizon
 
 const {
@@ -51,6 +52,8 @@ let END   = process.env.RUN_END   || process.env.RUN_DATE || etDate(-1);
 // metrics only exist for days that get pulled again, and re-running every client
 // to fill in one account's history is a lot of API calls for nothing.
 const ONLY_SLUG = (process.env.ONLY_SLUG || "").trim();
+// Pull one source only (e.g. a Google Ads backfill month without re-pulling Meta/GA4).
+const ONLY_SOURCE = (process.env.ONLY_SOURCE || "").trim();
 
 // Meta 'brk:' breakouts (placement / demo / device) are non-additive drill-down that
 // prune_metrics() deletes past BRK_RETENTION_DAYS. Writing them for a window that is
@@ -570,7 +573,229 @@ async function pullPages(src) {
 // to ingest-metrics, so there's nothing to pull here and no Ledger sheet to read/fill.
 // See orchestrator/google-ads-mcc-script.js and google-ads-account-script.js.
 
-const PULLERS = { callrail: pullCallRail, ga4: pullGA4, meta: pullMeta, pages: pullPages };
+// ---- Google Ads (direct API) -------------------------------------------------------
+// Port of orchestrator/gads/_body.js — same GAQL, same row grain, same qualifier
+// markers, so API rows and script rows land on the same primary key and are
+// interchangeable. One query per report type over the whole START..END window;
+// segments.date on every row gives the day.
+//
+// GRAIN CONTRACT (matches the reporting views):
+//   qualifier = <ad group name>      -> authoritative counts (summed)
+//   qualifier = "<channel type>"     -> campaign-level counts for PMax-style campaigns (summed)
+//   qualifier = "rate"               -> campaign-level rates as Google computes them
+//   qualifier = "ad:" / "term:" / "kw:" / "ag:" / "dev:" / "net:" / "age:" / "gender:"
+//                                    -> non-additive breakouts (excluded from totals)
+//
+// Accounts granted directly to the user (outside the MCC) are not handled here yet —
+// by decision 2026-09-04 they stay on the per-account script path. They come back
+// as a 403 "permission to access customer", which we treat as "not ours to pull".
+const isOutsideMcc = (e) => /403 .*permission to access customer/i.test(e?.message || "");
+const gNum = (v) => (v == null ? null : Number(v));
+const gMicros = (v) => (v == null ? null : Number(v) / 1e6);
+const gPct = (v) => (v == null ? null : Number(v) * 100);
+
+async function pullGoogleAds(src) {
+  if (!GADS_READY) return [];
+  const cid = String(src.external_id).replace(/\D/g, "");
+  const rows = [];
+  const push = (metric, day, entity, qualifier, value, unit, meta) => {
+    if (value == null || Number.isNaN(Number(value))) return;
+    rows.push({ metric_name: metric, metric_date: day, account_ext_id: cid,
+      entity: entity || "", qualifier: qualifier || "", value: Number(value), unit, meta: meta || undefined });
+  };
+  const where = (extra) => `WHERE segments.date BETWEEN '${START}' AND '${END}' AND ${extra}`;
+  const q = async (gaql) => gadsQuery(cid, gaql);
+  const guarded = async (label, fn) => { try { await fn(); } catch (e) { console.warn(`  google_ads ${src.slug}/${cid} ${label} skipped: ${e.message.slice(0, 160)}`); } };
+
+  let core;
+  try {
+    // 1. AD GROUP: authoritative counts — unguarded on purpose (load-bearing)
+    core = await q("SELECT segments.date, campaign.name, campaign.advertising_channel_type, ad_group.name, "
+      + "metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions, metrics.conversions_value, "
+      + "metrics.all_conversions, metrics.view_through_conversions FROM ad_group " + where("metrics.impressions > 0"));
+  } catch (e) {
+    if (isOutsideMcc(e)) { console.log(`  google_ads ${src.slug}/${cid}: outside the MCC — left to its account script`); return []; }
+    throw e;
+  }
+  const seenCampaignDay = new Set();
+  for (const r of core) {
+    const day = r.segments?.date, camp = r.campaign?.name || "", ag = r.adGroup?.name || "", m = r.metrics || {};
+    const ct = String(r.campaign?.advertisingChannelType || "").toLowerCase(), mt = { ctype: ct };
+    seenCampaignDay.add(`${day}|${camp}`);
+    push("impressions", day, camp, ag, gNum(m.impressions), "int", mt);
+    push("clicks", day, camp, ag, gNum(m.clicks), "int", mt);
+    push("spend", day, camp, ag, gMicros(m.costMicros), "usd", mt);
+    push("conversions", day, camp, ag, gNum(m.conversions), "int", mt);
+    push("conversions_value", day, camp, ag, gNum(m.conversionsValue), "usd", mt);
+    push("all_conversions", day, camp, ag, gNum(m.allConversions), "int", mt);
+    push("view_through_conversions", day, camp, ag, gNum(m.viewThroughConversions), "int", mt);
+  }
+
+  // 2. CAMPAIGN-level counts for campaigns with no ad groups (PMax etc.) — unguarded
+  const camps = await q("SELECT segments.date, campaign.name, campaign.advertising_channel_type, metrics.impressions, "
+    + "metrics.clicks, metrics.cost_micros, metrics.conversions, metrics.conversions_value, metrics.all_conversions, "
+    + "metrics.view_through_conversions FROM campaign " + where("metrics.impressions > 0"));
+  for (const r of camps) {
+    const day = r.segments?.date, camp = r.campaign?.name || "", m = r.metrics || {};
+    if (seenCampaignDay.has(`${day}|${camp}`)) continue;
+    const ct = String(r.campaign?.advertisingChannelType || "campaign").toLowerCase(), mt = { ctype: ct };
+    push("impressions", day, camp, ct, gNum(m.impressions), "int", mt);
+    push("clicks", day, camp, ct, gNum(m.clicks), "int", mt);
+    push("spend", day, camp, ct, gMicros(m.costMicros), "usd", mt);
+    push("conversions", day, camp, ct, gNum(m.conversions), "int", mt);
+    push("conversions_value", day, camp, ct, gNum(m.conversionsValue), "usd", mt);
+    push("all_conversions", day, camp, ct, gNum(m.allConversions), "int", mt);
+    push("view_through_conversions", day, camp, ct, gNum(m.viewThroughConversions), "int", mt);
+  }
+
+  // 3. CAMPAIGN rates + auction diagnostics + calls (qualifier='rate')
+  await guarded("campaign rates", async () => {
+    const rs = await q("SELECT segments.date, campaign.name, metrics.ctr, metrics.average_cpc, metrics.average_cpm, "
+      + "metrics.cost_per_conversion, metrics.cost_per_all_conversions, metrics.conversions_from_interactions_rate, "
+      + "metrics.value_per_conversion, metrics.interaction_rate, metrics.engagement_rate, metrics.search_impression_share, "
+      + "metrics.search_budget_lost_impression_share, metrics.search_rank_lost_impression_share, metrics.search_click_share, "
+      + "metrics.absolute_top_impression_percentage, metrics.top_impression_percentage, metrics.phone_calls, "
+      + "metrics.phone_impressions, metrics.phone_through_rate FROM campaign " + where("metrics.impressions > 0"));
+    for (const r of rs) {
+      const d = r.segments?.date, c = r.campaign?.name || "", m = r.metrics || {};
+      push("ctr", d, c, "rate", gPct(m.ctr), "pct");
+      push("cpc", d, c, "rate", gMicros(m.averageCpc), "usd");
+      push("cpm", d, c, "rate", gMicros(m.averageCpm), "usd");
+      push("cost_per_conversion", d, c, "rate", gMicros(m.costPerConversion), "usd");
+      push("cost_per_all_conversions", d, c, "rate", gMicros(m.costPerAllConversions), "usd");
+      push("conversion_rate", d, c, "rate", gPct(m.conversionsFromInteractionsRate), "pct");
+      push("value_per_conversion", d, c, "rate", gNum(m.valuePerConversion), "usd");
+      push("interaction_rate", d, c, "rate", gPct(m.interactionRate), "pct");
+      push("engagement_rate", d, c, "rate", gPct(m.engagementRate), "pct");
+      push("impression_share", d, c, "rate", gPct(m.searchImpressionShare), "pct");
+      push("lost_is_budget", d, c, "rate", gPct(m.searchBudgetLostImpressionShare), "pct");
+      push("lost_is_rank", d, c, "rate", gPct(m.searchRankLostImpressionShare), "pct");
+      push("click_share", d, c, "rate", gPct(m.searchClickShare), "pct");
+      push("top_impression_pct", d, c, "rate", gPct(m.absoluteTopImpressionPercentage), "pct");
+      push("top_of_page_pct", d, c, "rate", gPct(m.topImpressionPercentage), "pct");
+      push("phone_calls", d, c, "rate", gNum(m.phoneCalls), "int");
+      push("phone_impressions", d, c, "rate", gNum(m.phoneImpressions), "int");
+      push("phone_through_rate", d, c, "rate", gPct(m.phoneThroughRate), "pct");
+    }
+  });
+
+  // 3b. VIDEO — field availability varies; widest set first, narrower fallbacks
+  const videoSets = [
+    "metrics.video_views, metrics.video_view_rate, metrics.average_cpv, metrics.video_quartile_p25_rate, "
+      + "metrics.video_quartile_p50_rate, metrics.video_quartile_p75_rate, metrics.video_quartile_p100_rate",
+    "metrics.video_views, metrics.video_view_rate",
+    "metrics.video_views",
+  ];
+  for (let vi = 0; vi < videoSets.length; vi++) {
+    try {
+      const rs = await q(`SELECT segments.date, campaign.name, ${videoSets[vi]} FROM campaign ` + where("metrics.impressions > 0"));
+      for (const r of rs) {
+        const d = r.segments?.date, c = r.campaign?.name || "", m = r.metrics || {};
+        push("video_views", d, c, "rate", gNum(m.videoViews), "int");
+        push("video_view_rate", d, c, "rate", gPct(m.videoViewRate), "pct");
+        push("cpv", d, c, "rate", gMicros(m.averageCpv), "usd");
+        push("video_p25_rate", d, c, "rate", gPct(m.videoQuartileP25Rate), "pct");
+        push("video_p50_rate", d, c, "rate", gPct(m.videoQuartileP50Rate), "pct");
+        push("video_p75_rate", d, c, "rate", gPct(m.videoQuartileP75Rate), "pct");
+        push("video_p100_rate", d, c, "rate", gPct(m.videoQuartileP100Rate), "pct");
+      }
+      break;
+    } catch (e) { if (vi === videoSets.length - 1) console.warn(`  google_ads ${src.slug} video metrics unavailable: ${e.message.slice(0, 120)}`); }
+  }
+
+  // 4. ACCOUNT-level rates (entity='' qualifier='')
+  await guarded("account rates", async () => {
+    const rs = await q("SELECT segments.date, metrics.ctr, metrics.average_cpc, metrics.average_cpm, metrics.cost_per_conversion, "
+      + "metrics.conversions_from_interactions_rate FROM customer " + where("metrics.impressions >= 0"));
+    for (const r of rs) {
+      const d = r.segments?.date, m = r.metrics || {};
+      push("ctr", d, "", "", gPct(m.ctr), "pct");
+      push("cpc", d, "", "", gMicros(m.averageCpc), "usd");
+      push("cpm", d, "", "", gMicros(m.averageCpm), "usd");
+      push("cost_per_conversion", d, "", "", gMicros(m.costPerConversion), "usd");
+      push("conversion_rate", d, "", "", gPct(m.conversionsFromInteractionsRate), "pct");
+    }
+  });
+
+  // 5. AD level (drill)
+  await guarded("ad drill", async () => {
+    const rs = await q("SELECT segments.date, campaign.name, ad_group.name, ad_group_ad.ad.name, ad_group_ad.ad.type, "
+      + "metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions FROM ad_group_ad " + where("metrics.impressions > 0"));
+    for (const r of rs) {
+      const d = r.segments?.date, c = r.campaign?.name || "", m = r.metrics || {};
+      const adName = r.adGroupAd?.ad?.name || r.adGroupAd?.ad?.type || "(unnamed ad)";
+      const qq = `ad:${r.adGroup?.name || ""} › ${adName}`;
+      push("impressions", d, c, qq, gNum(m.impressions), "int");
+      push("clicks", d, c, qq, gNum(m.clicks), "int");
+      push("spend", d, c, qq, gMicros(m.costMicros), "usd");
+      push("conversions", d, c, qq, gNum(m.conversions), "int");
+    }
+  });
+
+  // 6–10. breakouts: search terms, keywords (+quality), PMax asset groups, device, network, age, gender
+  const breakout = async (label, gaql, qualOf, extra) => guarded(label, async () => {
+    const rs = await q(gaql);
+    for (const r of rs) {
+      const d = r.segments?.date, c = r.campaign?.name || "", m = r.metrics || {}, qq = qualOf(r);
+      push("impressions", d, c, qq, gNum(m.impressions), "int");
+      push("clicks", d, c, qq, gNum(m.clicks), "int");
+      push("spend", d, c, qq, gMicros(m.costMicros), "usd");
+      push("conversions", d, c, qq, gNum(m.conversions), "int");
+      if (extra) extra(r, d, c, qq, m);
+    }
+  });
+  const M4 = "metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions";
+  await breakout("search terms",
+    `SELECT segments.date, campaign.name, search_term_view.search_term, ${M4} FROM search_term_view ` + where("metrics.impressions > 0"),
+    (r) => `term:${r.searchTermView?.searchTerm || "(unknown)"}`);
+  await breakout("keywords",
+    "SELECT segments.date, campaign.name, ad_group_criterion.keyword.text, ad_group_criterion.keyword.match_type, "
+      + "ad_group_criterion.quality_info.quality_score, ad_group_criterion.quality_info.creative_quality_score, "
+      + "ad_group_criterion.quality_info.post_click_quality_score, ad_group_criterion.quality_info.search_predicted_ctr, "
+      + `${M4} FROM keyword_view ` + where("metrics.impressions > 0"),
+    (r) => { const kw = r.adGroupCriterion?.keyword || {}; return `kw:${kw.text || "(unknown)"}${kw.matchType ? ` [${kw.matchType}]` : ""}`; },
+    (r, d, c, qq) => {
+      const qi = r.adGroupCriterion?.qualityInfo;
+      if (qi?.qualityScore) push("quality_score", d, c, qq, gNum(qi.qualityScore), "int");
+      if (qi && (qi.creativeQualityScore || qi.postClickQualityScore || qi.searchPredictedCtr)) {
+        push("quality_components", d, c, qq, 1, "int", { ad_relevance: qi.creativeQualityScore || null,
+          landing_page: qi.postClickQualityScore || null, expected_ctr: qi.searchPredictedCtr || null });
+      }
+    });
+  await breakout("asset groups",
+    `SELECT segments.date, campaign.name, asset_group.name, ${M4}, metrics.conversions_value FROM asset_group ` + where("metrics.impressions > 0"),
+    (r) => `ag:${r.assetGroup?.name || "(unnamed)"}`,
+    (r, d, c, qq, m) => push("conversions_value", d, c, qq, gNum(m.conversionsValue), "usd"));
+  await breakout("device",
+    `SELECT segments.date, campaign.name, segments.device, ${M4} FROM campaign ` + where("metrics.impressions > 0"),
+    (r) => `dev:${String(r.segments?.device || "UNKNOWN").toLowerCase()}`);
+  await breakout("network",
+    `SELECT segments.date, campaign.name, segments.ad_network_type, ${M4} FROM campaign ` + where("metrics.impressions > 0"),
+    (r) => `net:${String(r.segments?.adNetworkType || "UNKNOWN").toLowerCase()}`);
+  await breakout("age",
+    `SELECT segments.date, campaign.name, ad_group_criterion.age_range.type, ${M4} FROM age_range_view ` + where("metrics.impressions > 0"),
+    (r) => `age:${String(r.adGroupCriterion?.ageRange?.type || "UNKNOWN").replace(/^AGE_RANGE_/, "").toLowerCase()}`);
+  await breakout("gender",
+    `SELECT segments.date, campaign.name, ad_group_criterion.gender.type, ${M4} FROM gender_view ` + where("metrics.impressions > 0"),
+    (r) => `gender:${String(r.adGroupCriterion?.gender?.type || "UNKNOWN").replace(/^GENDER_/, "").toLowerCase()}`);
+
+  // 11. CONVERSION ACTIONS (name + category)
+  await guarded("conversion actions", async () => {
+    const rs = await q("SELECT segments.date, campaign.name, segments.conversion_action_name, segments.conversion_action_category, "
+      + "metrics.conversions, metrics.conversions_value FROM campaign " + where("metrics.conversions > 0"));
+    for (const r of rs) {
+      const d = r.segments?.date, c = r.campaign?.name || "", sc = r.segments || {}, m = r.metrics || {};
+      const name = sc.conversionActionName || "(unknown)";
+      const meta = sc.conversionActionCategory ? { category: String(sc.conversionActionCategory).toLowerCase() } : undefined;
+      push("conversion_action", d, c, name, gNum(m.conversions), "int", meta);
+      push("conversion_action_value", d, c, name, gNum(m.conversionsValue), "usd", meta);
+    }
+  });
+
+  return rows;
+}
+
+const PULLERS = { callrail: pullCallRail, ga4: pullGA4, meta: pullMeta, pages: pullPages, google_ads: pullGoogleAds };
 
 // Pull + ingest for a set of client_sources rows (optionally one source only).
 // Used by the main run and by the integrity sentinel's gap sweeps.
@@ -606,9 +831,10 @@ async function main() {
   const tally = {}, health = {}; // health[source] = {ok, fail}
   const mark = (source, ok) => { const h = health[source] = health[source] || { ok: 0, fail: 0 }; ok ? h.ok++ : h.fail++; };
 
-  // bounded parallelism: 5 concurrent pulls (google_ads is push-based via Ads Scripts)
-  if (!PROBE_ONLY) await pullWindow(sources, null, tally, mark);
-  // (google_ads arrives via the Google Ads Scripts POSTing directly — not pulled here)
+  // bounded parallelism: 5 concurrent pulls. google_ads is pulled by API for MCC accounts
+  // when GOOGLE_ADS_* is configured; accounts outside the MCC still arrive via their
+  // own Ads Script posting directly.
+  if (!PROBE_ONLY) await pullWindow(sources, ONLY_SOURCE || null, tally, mark);
 
   console.log("Ingested rows:", JSON.stringify(tally));
   console.log("Source health:", JSON.stringify(health));
@@ -757,10 +983,13 @@ async function main() {
         return r.ok && !d.error ? [true, d.name || "company"] : [false, JSON.stringify(d.error || d).slice(0, 160)];
       }
       if (src === "google_ads" && GADS_READY) {
-        // direct API: can this credential read the account at all?
-        const rs = await gadsQuery(ext, "SELECT customer.descriptive_name, customer.currency_code, customer.status FROM customer LIMIT 1");
-        const c = rs[0]?.customer || {};
-        return [true, `${c.descriptiveName || "account"} · ${c.currencyCode || ""}${c.status && c.status !== "ENABLED" ? ` (${c.status})` : ""}`];
+        // direct API: can this credential read the account at all? Accounts outside the
+        // MCC answer 403 — they are script-fed by decision, so fall through to that probe.
+        try {
+          const rs = await gadsQuery(ext, "SELECT customer.descriptive_name, customer.currency_code, customer.status FROM customer LIMIT 1");
+          const c = rs[0]?.customer || {};
+          return [true, `API · ${c.descriptiveName || "account"} · ${c.currencyCode || ""}${c.status && c.status !== "ENABLED" ? ` (${c.status})` : ""}`];
+        } catch (e) { if (!isOutsideMcc(e)) throw e; }
       }
       if (src === "google_ads") {
         // push-based fallback: "reachable" = the Ads Script has posted for this account recently
@@ -768,7 +997,7 @@ async function main() {
           + `&account_ext_id=ilike.*${ext.replace(/\D/g, "").slice(-4)}*&order=metric_date.desc&limit=1`);
         const last = rows?.[0]?.metric_date;
         const fresh = last && (Date.now() - new Date(last)) < 5 * 864e5;
-        return [!!fresh, last ? `last script post ${last}` : "no data ever posted"];
+        return [!!fresh, last ? `script-fed (outside MCC) · last post ${last}` : "script-fed (outside MCC) · no data ever posted"];
       }
       return [true, "no probe for this source"];
     } catch (e) { return [false, e.message.slice(0, 160)]; }
