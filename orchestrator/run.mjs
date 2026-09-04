@@ -934,19 +934,29 @@ async function main() {
     const statusRows = [];
     if (META_ACCESS_TOKEN) {
       const r = await fetchT(`https://graph.facebook.com/v21.0/debug_token?input_token=${META_ACCESS_TOKEN}&access_token=${META_ACCESS_TOKEN}`);
-      const d = (await r.json())?.data || {};
-      // effective expiry = the sooner of session expiry and data-access expiry
-      // (expires_at can be 0 = "session never expires", but data_access_expires_at
-      // still cuts off reads ~90 days out — that's the clock that matters).
-      const clocks = [d.expires_at, d.data_access_expires_at].filter((x) => x > 0);
-      statusRows.push({
-        provider: "meta",
-        status: d.is_valid ? "ok" : "expired",
-        expires_at: clocks.length ? new Date(Math.min(...clocks) * 1000).toISOString() : null,
-        detail: d.is_valid
-          ? `user token${d.expires_at === 0 ? " (session non-expiring; limit is data access)" : ""} · scopes: ${(d.scopes || []).join(", ")}`
-          : (d.error?.message || "token invalid"),
-      });
+      const body = await r.json().catch(() => ({}));
+      const d = body?.data || {};
+      const topErr = body?.error;
+      // A throttled or failed introspection call says nothing about the token. Only
+      // Facebook's own verdict (data.is_valid === false, or an OAuth error code 190) may
+      // mark it expired — this run's real reads (16 ad accounts) are the better evidence.
+      // (2026-09-04: a day of manual runs tripped the app rate limit and a "{}" answer was
+      // reported as "expired" — a false alarm that went out by email.)
+      const throttled = topErr && (topErr.code === 4 || topErr.code === 17 || topErr.code === 32 || topErr.code === 613 || /request limit/i.test(topErr.message || ""));
+      const verdictKnown = d.is_valid === true || d.is_valid === false || (topErr && topErr.code === 190);
+      if (!verdictKnown) {
+        console.warn(`Meta token introspection unavailable this run (${throttled ? "rate limited" : (topErr?.message || "empty answer")}) — status left as-is`);
+      } else {
+        const clocks = [d.expires_at, d.data_access_expires_at].filter((x) => x > 0);
+        statusRows.push({
+          provider: "meta",
+          status: d.is_valid ? "ok" : "expired",
+          expires_at: clocks.length ? new Date(Math.min(...clocks) * 1000).toISOString() : null,
+          detail: d.is_valid
+            ? `user token${d.expires_at === 0 ? " (session non-expiring; limit is data access)" : ""} · scopes: ${(d.scopes || []).join(", ")}`
+            : (d.error?.message || topErr?.message || "Facebook reports the token invalid"),
+        });
+      }
     }
     statusRows.push({ provider: "google_oauth", status: health.ga4 && health.ga4.ok > 0 ? "ok" : "unknown",
       expires_at: null, detail: "refresh token — no fixed expiry (dies only if revoked)" });
