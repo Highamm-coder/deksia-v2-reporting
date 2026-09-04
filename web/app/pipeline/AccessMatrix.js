@@ -1,63 +1,48 @@
-// Access matrix: one row per client, one column per platform, a dot per cell.
-//   green  — mapped, the nightly probe reached every account, and data is fresh
-//   red    — mapped but something is wrong: unreachable, stale, or never posted
-//   grey   — not connected (no mapping in client_sources)
-// Hover a dot for the reason. Numbers beside a dot = how many accounts that cell covers.
+// Access matrix: does Deksia have read access to each client's account on each platform?
+// One question per cell, answered by the nightly connection probe:
+//   ● green  — an account is connected and the provider let us read it
+//   ● red    — an account is connected but the provider refused (hover for its exact words)
+//   –        — no account connected on this platform
+// Freshness is a different question and lives in "Source freshness" below.
 import Link from "next/link";
 
 export const PLATFORMS = [
   ["meta", "Meta"], ["google_ads", "Google Ads"], ["ga4", "GA4"], ["callrail", "CallRail"], ["pages", "Pages"],
 ];
 
-const DOT = {
-  ok:   { bg: "var(--on)",  ring: "rgba(30,142,62,.18)",  label: "connected" },
-  bad:  { bg: "var(--off)", ring: "rgba(217,48,37,.16)",  label: "problem" },
-  none: { bg: "transparent", ring: "transparent", border: "1.5px solid var(--line)", label: "not connected" },
-};
-
-function Dot({ state, title, count }) {
-  const d = DOT[state];
+function Dot({ state, title }) {
+  if (state === "none") return <span title={title} style={{ color: "var(--line)", fontSize: 18, lineHeight: 1 }}>–</span>;
   return (
-    <span title={title} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-      <span style={{
-        width: 12, height: 12, borderRadius: 999, background: d.bg, border: d.border,
-        boxShadow: state === "none" ? "none" : `0 0 0 4px ${d.ring}`, display: "inline-block",
-      }} />
-      {count > 1 && <span className="muted" style={{ fontSize: 11 }}>×{count}</span>}
-    </span>
+    <span title={title} style={{
+      display: "inline-block", width: 14, height: 14, borderRadius: 999,
+      background: state === "ok" ? "var(--on)" : "var(--off)",
+    }} />
   );
 }
 
-// Decide the cell. `maps` = client_sources rows for this client×source, `probes` = latest
-// probe per account, `health` = v_pipeline_health row for the client×source.
-export function cellState(maps, probes, health) {
-  if (!maps.length) return { state: "none", title: "Not connected — no account mapped", count: 0 };
-  const reasons = [];
+// Google Ads is push-based (the MCC script posts to us) so there is no API to probe; a
+// mapped account is one the MCC manages, which is the access. Every other platform is
+// probed nightly with the real credential, and the provider's answer decides the cell.
+export function cellState(source, maps, probes) {
+  if (!maps.length) return { state: "none", title: "No account connected" };
+  const refused = [];
   for (const m of maps) {
     const p = probes.find((x) => String(x.external_id).replace(/\D/g, "") === String(m.external_id).replace(/\D/g, ""));
-    if (p && !p.reachable) reasons.push(`${m.external_id}: ${p.detail || "unreachable"}`);
+    if (source !== "google_ads" && p && !p.reachable) refused.push(`${m.external_id} — ${p.detail || "provider refused"}`);
   }
-  if (!health || health.sync_status === "no_data") reasons.push("no data has ever landed");
-  else if (health.sync_status !== "fresh") reasons.push(`data ${health.sync_status} — last ${health.last_metric_date || "never"}`);
   const ids = maps.map((m) => m.external_id).join(", ");
-  return reasons.length
-    ? { state: "bad", title: reasons.join("\n"), count: maps.length }
-    : { state: "ok", title: `Connected · ${ids}${health?.last_metric_date ? ` · data through ${health.last_metric_date}` : ""}`, count: maps.length };
+  if (refused.length) return { state: "bad", title: `Connected but cannot read:\n${refused.join("\n")}` };
+  return { state: "ok", title: `Access confirmed · ${ids}` };
 }
 
-export default function AccessMatrix({ clients, sources, probes, health }) {
-  const rows = (clients || []).map((c) => {
-    const cells = PLATFORMS.map(([src]) => {
-      const maps = (sources || []).filter((s) => s.client_id === c.id && s.source === src && s.active);
-      const pr = (probes || []).filter((p) => p.client_slug === c.slug && p.source === src);
-      const h = (health || []).find((x) => x.slug === c.slug && x.source === src);
-      return cellState(maps, pr, h);
-    });
-    return { ...c, cells };
-  });
-  const totals = PLATFORMS.map((_, i) => ({
-    ok: rows.filter((r) => r.cells[i].state === "ok").length,
-    bad: rows.filter((r) => r.cells[i].state === "bad").length,
+export default function AccessMatrix({ clients, sources, probes }) {
+  const rows = (clients || []).map((c) => ({
+    ...c,
+    cells: PLATFORMS.map(([src]) => cellState(
+      src,
+      (sources || []).filter((s) => s.client_id === c.id && s.source === src && s.active),
+      (probes || []).filter((p) => p.client_slug === c.slug && p.source === src),
+    )),
   }));
 
   return (
@@ -65,16 +50,8 @@ export default function AccessMatrix({ clients, sources, probes, health }) {
       <table style={{ marginTop: 10 }}>
         <thead>
           <tr>
-            <th>Client</th>
-            {PLATFORMS.map(([src, label], i) => (
-              <th key={src} style={{ textAlign: "center" }}>
-                {label}
-                <div style={{ fontWeight: 400, letterSpacing: 0, textTransform: "none", marginTop: 2 }}>
-                  <span style={{ color: "var(--on)" }}>{totals[i].ok}</span>
-                  {totals[i].bad > 0 && <span style={{ color: "var(--off)" }}> · {totals[i].bad}</span>}
-                </div>
-              </th>
-            ))}
+            <th style={{ width: "34%" }}>Client</th>
+            {PLATFORMS.map(([src, label]) => <th key={src} style={{ textAlign: "center" }}>{label}</th>)}
           </tr>
         </thead>
         <tbody>
@@ -86,18 +63,16 @@ export default function AccessMatrix({ clients, sources, probes, health }) {
               </td>
               {r.cells.map((cell, i) => (
                 <td key={PLATFORMS[i][0]} style={{ textAlign: "center" }}>
-                  <Dot state={cell.state} title={cell.title} count={cell.count} />
+                  <Dot state={cell.state} title={cell.title} />
                 </td>
               ))}
             </tr>
           ))}
         </tbody>
       </table>
-      <div className="muted" style={{ display: "flex", gap: 18, fontSize: 12, marginTop: 8, flexWrap: "wrap" }}>
-        <span><Dot state="ok" /> connected — probe reached every account and data is fresh</span>
-        <span><Dot state="bad" /> problem — hover the dot for the provider&apos;s reason</span>
-        <span><Dot state="none" /> not connected</span>
-      </div>
+      <p className="muted" style={{ fontSize: 12, margin: "8px 0 0" }}>
+        <Dot state="ok" /> we can read it &nbsp;&nbsp; <Dot state="bad" /> connected but the provider refuses — hover for why &nbsp;&nbsp; – not connected
+      </p>
     </>
   );
 }

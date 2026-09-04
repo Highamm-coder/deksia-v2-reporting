@@ -73,8 +73,8 @@ export default async function Pipeline({ searchParams }) {
       </div>
       {testMsg && <div style={{ margin: "6px 0 0", fontSize: 13, color: testMsg[1] }}>{testMsg[0]}</div>}
 
-      <h2>Access — who we can read, by platform</h2>
-      <AccessMatrix clients={clients} sources={sources} probes={probeRows} health={pipeline} />
+      <h2>Access — which accounts we can read</h2>
+      <AccessMatrix clients={clients} sources={sources} probes={probeRows} />
 
       <h2>Connections {probedAt && <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>
         · last tested {new Date(probedAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>}</h2>
