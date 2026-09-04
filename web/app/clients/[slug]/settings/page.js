@@ -28,7 +28,7 @@ export default async function SettingsTab({ params, searchParams }) {
 
   // Meta depth: how many distinct metric names this client actually has stored, so the
   // choice is made against the real number rather than a promise about it.
-  const metaSources = sources.filter((s) => s.source === "meta");
+  const metaSources = sources.filter((s) => s.source === "meta" || s.source === "google_ads");
   const { data: nameRow } = metaSources.length
     ? await supabase.from("v_client_metric_names").select("metric_names")
         .eq("client_id", client.id).eq("source", "meta").maybeSingle()
@@ -96,15 +96,14 @@ export default async function SettingsTab({ params, searchParams }) {
 
       {metaSources.length > 0 && (
         <>
-          <h2 id="metric-depth">Meta metric depth</h2>
+          <h2 id="metric-depth">Metric depth — Meta &amp; Google Ads</h2>
           <p className="muted" style={{ margin: "0 0 8px", fontSize: 13 }}>
-            Meta reports roughly 90 action types per account, and most are aliases of one another
-            (<code>omni_landing_page_view</code> and <code>landing_page_view</code> are the same number) or
-            vanity engagement. <strong>Standard</strong> stores the conversions an account is judged on —
-            leads, lead-form and pixel leads, landing page views, purchase funnel, calls, messages,
-            engagement — about 35 metric names. <strong>Full</strong> stores everything Meta returns,
-            including its aliases and unnamed <code>offsite_conversion.custom.&lt;pixel-id&gt;</code> events.
-            Nothing is computed or combined either way; this only decides what gets stored.
+            <strong>Standard</strong> is core data. Meta: the conversions an account is judged on — leads,
+            lead-form and pixel leads, landing page views, purchase funnel, calls, messages, engagement —
+            without Meta&apos;s ~90 aliased action types. Google Ads: campaign, ad group, ad and PMax asset-group
+            counts, campaign rates and conversion actions — without search-term, keyword, device, network, age and
+            gender splits (roughly ten times the volume of everything else). <strong>Full</strong> stores all of it,
+            with the splits kept 90 days. Nothing is computed or combined either way; this only decides what gets stored.
           </p>
           <p className="muted" style={{ margin: "0 0 8px", fontSize: 13 }}>
             This client currently has <strong>{metaNameCount}</strong> distinct Meta metric names in the
@@ -112,13 +111,14 @@ export default async function SettingsTab({ params, searchParams }) {
           </p>
           {depthMsg ? <div style={{ margin: "8px 0", fontSize: 13, color: depthMsg[1] }}>{depthMsg[0]}</div> : null}
           <table>
-            <thead><tr><th>Ad account</th><th>Depth</th><th></th></tr></thead>
+            <thead><tr><th>Platform</th><th>Ad account</th><th>Depth</th><th></th></tr></thead>
             <tbody>
               {metaSources.map((s) => {
                 const d = s.params?.metric_depth === "full" ? "full" : "standard";
                 return (
                   <tr key={s.id}>
-                    <td className="muted">{s.external_id}</td>
+                    <td>{s.source === "meta" ? "Meta" : "Google Ads"}</td>
+                    <td className="muted">{s.params?.label ? `${s.params.label} · ` : ""}{s.external_id}</td>
                     <td>{d === "full" ? <span className="pill pending">full</span> : <span className="pill on_track">standard</span>}</td>
                     <td>
                       <form action={setMetricDepth} style={{ margin: 0 }}>

@@ -774,7 +774,12 @@ async function pullGoogleAds(src) {
     `SELECT segments.date, campaign.name, asset_group.name, ${M4}, metrics.conversions_value FROM asset_group ` + where("metrics.impressions > 0"),
     (r) => `ag:${r.assetGroup?.name || "(unnamed)"}`,
     (r, d, c, qq, m) => push("conversions_value", d, c, qq, gNum(m.conversionsValue), "usd"));
-  if (!WRITE_BREAKOUTS) { splitsSkipped = true; } else {
+  // Search-term / keyword / device / network / age / gender splits are NOT core data
+  // (Matt, 2026-09-04: "really just need core data") and are ~10× the volume of everything
+  // else. Pulled only for accounts opted in with client_sources.params.metric_depth='full'
+  // — the same switch as Meta — and, like Meta's brk: rows, only inside the 90-day horizon.
+  const wantSplits = src.params?.metric_depth === "full" && WRITE_BREAKOUTS;
+  if (!wantSplits) { splitsSkipped = true; } else {
   await breakout("search terms",
     `SELECT segments.date, campaign.name, search_term_view.search_term, ${M4} FROM search_term_view ` + where("metrics.impressions > 0"),
     (r) => `term:${r.searchTermView?.searchTerm || "(unknown)"}`);
@@ -820,7 +825,7 @@ async function pullGoogleAds(src) {
   });
 
   if (splitsSkipped && !pullGoogleAds._splitNote) { pullGoogleAds._splitNote = true;
-    console.log(`  google_ads: window ends before the 90-day breakout horizon — term/kw/dev/net/age/gender splits not pulled`); }
+    console.log(`  google_ads: term/kw/dev/net/age/gender splits not pulled (standard depth, or window outside the 90-day horizon)`); }
   return [...byKey.values()];
 }
 
