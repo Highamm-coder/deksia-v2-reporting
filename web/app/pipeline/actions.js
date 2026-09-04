@@ -43,11 +43,11 @@ export async function runConnectionTest() {
 export async function enqueueGadsBackfill(formData) {
   const supabase = getSupabaseServer();
   const { data: isAdmin } = await supabase.rpc("is_admin");
-  if (!isAdmin) redirect("/pipeline?bf=forbidden");
+  if (!isAdmin) redirect("/pipeline?tab=freshness&bf=forbidden");
   const start = String(formData.get("start") || "");
   const end = String(formData.get("end") || "");
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) redirect("/pipeline?bf=baddate");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) redirect("/pipeline?tab=freshness&bf=baddate");
   const { data, error } = await supabase.rpc("gads_enqueue", { p_start: start, p_end: end, p_cid: null });
   revalidatePath("/pipeline");
-  redirect(error ? "/pipeline?bf=failed" : `/pipeline?bf=${encodeURIComponent(String(data ?? 0))}`);
+  redirect(error ? "/pipeline?tab=freshness&bf=failed" : `/pipeline?tab=freshness&bf=${encodeURIComponent(String(data ?? 0))}`);
 }
