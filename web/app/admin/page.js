@@ -1,11 +1,11 @@
 import { getSupabaseServer } from "../../lib/supabase/server";
 import AppShell from "../_components/AppShell";
-import { setUserBan, setBugStatus, addAdmin, removeAdmin } from "./actions";
+import { setUserBan, setBugStatus, addAdmin, removeAdmin, createClient } from "./actions";
 
 export const dynamic = "force-dynamic";
 const dt = (v) => (v ? new Date(v).toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : "—");
 
-export default async function AdminPage() {
+export default async function AdminPage({ searchParams }) {
   const supabase = getSupabaseServer();
   const [{ data: isAdmin }, { data: auth }] = await Promise.all([
     supabase.rpc("is_admin"),
@@ -22,11 +22,10 @@ export default async function AdminPage() {
     );
   }
 
-  const [{ data: users }, { data: bugs }, { data: admins }, { data: creds }] = await Promise.all([
+  const [{ data: users }, { data: bugs }, { data: admins }] = await Promise.all([
     supabase.rpc("admin_list_users"),
     supabase.from("bug_reports").select("*").order("status").order("created_at", { ascending: false }).limit(200),
     supabase.from("admins").select("*").order("email"),
-    supabase.from("connector_status").select("*").order("provider"),
   ]);
   const adminSet = new Set((admins || []).map((a) => a.email));
   const openBugs = (bugs || []).filter((b) => b.status === "open");
@@ -35,9 +34,27 @@ export default async function AdminPage() {
     <AppShell>
       <h1 style={{ fontSize: 24, margin: "0 0 4px" }}>Admin</h1>
       <p className="muted" style={{ margin: "0 0 10px", fontSize: 13 }}>
-        Users, access, and bug reports. <a href="/admin/onboarding">Client onboarding →</a> ·
-        credential health on <a href="/connections">Connections</a>.
+        People and clients. Accounts are attached on <a href="/connections">Connections</a>; data health on <a href="/data">Data health</a>.
       </p>
+
+      <section id="new-client">
+        <h2>New client</h2>
+        {searchParams?.err && <div style={{ margin: "0 0 8px", fontSize: 13, color: "var(--off)" }}>
+          {searchParams.err === "missing" ? "Name is required." : searchParams.err === "client" ? "Couldn't create the client — that slug may already exist." : "Admins only."}</div>}
+        {searchParams?.created && <div style={{ margin: "0 0 8px", fontSize: 13, color: "var(--on)" }}>
+          Created <strong>{searchParams.created}</strong>. <a href={`/connections?client=${encodeURIComponent(searchParams.created)}`}>Attach its accounts on Connections →</a></div>}
+        <form action={createClient} style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+          <label style={{ margin: 0, flex: 1, minWidth: 200 }}>Client name<input name="name" required placeholder="Every Child Tennessee" /></label>
+          <label style={{ margin: 0 }}>Short slug<input name="slug" placeholder="ECTN" style={{ width: 130 }} /></label>
+          <label style={{ margin: 0 }}>Timezone
+            <select name="timezone" defaultValue="America/Detroit" style={{ width: "auto" }}>
+              <option>America/Detroit</option><option>America/New_York</option><option>America/Chicago</option>
+              <option>America/Denver</option><option>America/Los_Angeles</option>
+            </select>
+          </label>
+          <button type="submit" style={{ margin: 0 }}>Create client</button>
+        </form>
+      </section>
 
       <section>
         <h2>Bug reports {openBugs.length > 0 && <span className="pill stale">{openBugs.length} open</span>}</h2>

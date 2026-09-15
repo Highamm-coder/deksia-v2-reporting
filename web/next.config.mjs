@@ -4,6 +4,7 @@ const nextConfig = {
   async redirects() {
     return [
       { source: "/pipeline", destination: "/data", permanent: true },
+      { source: "/admin/onboarding", destination: "/admin", permanent: true },
     ];
   },
 };

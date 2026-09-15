@@ -1,7 +1,7 @@
 import { getSupabaseServer } from "../../lib/supabase/server";
 import AppShell from "../_components/AppShell";
 import { runConnectionTest } from "../data/actions";
-import { mapDiscovered, setMappingActive, updateMapping, probeMapping } from "./actions";
+import { mapDiscovered, setMappingActive, updateMapping, probeMapping, attachById } from "./actions";
 
 export const dynamic = "force-dynamic";
 const when = (ts) => (ts ? new Date(ts).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—");
@@ -22,6 +22,8 @@ const PROVIDERS = [
     rotate: "CallRail → Settings → API keys → `gh secret set CALLRAIL_API_KEY`." },
 ];
 
+const PLATFORM_LABEL = { meta: "Meta Ads", pages: "Facebook Pages", google_ads: "Google Ads", ga4: "GA4", callrail: "CallRail", search_console: "Search Console", youtube: "YouTube" };
+
 function pill(status) {
   const cls = status === "ok" ? "fresh" : status === "expired" ? "off_track" : "pending";
   return <span className={`pill ${cls}`}>{status || "unknown"}</span>;
@@ -41,7 +43,8 @@ export default async function Connections({ searchParams }) {
   const statusBy = Object.fromEntries((status || []).map((s) => [s.provider, s]));
   const mappedKeys = new Set((mappings || []).map((m) => `${m.source}|${norm(m.external_id)}`));
   const probeFor = (source, ext) => (probes || []).find((p) => p.source === source && norm(p.external_id) === norm(ext));
-  const msg = searchParams?.mapped ? [`Mapped ${searchParams.mapped}. It's probed tonight and pulled from tomorrow's run; queue a backfill for history.`, "var(--on)"]
+  const yearStart = `${new Date().getUTCFullYear()}-01-01`;
+  const msg = searchParams?.mapped ? [<>Mapped <strong>{searchParams.mapped}</strong>. {searchParams.probing ? "Probing it now — the verdict lands in its row in about a minute (refresh)." : searchParams.probe_err ? `Couldn't start the probe (${searchParams.probe_err}); it's probed tonight.` : ""} It's pulled from tomorrow&apos;s run. <a href={`/data?client=${encodeURIComponent(searchParams.client || "")}&source=${encodeURIComponent(searchParams.source || "")}&start=${yearStart}#backfills`}>Queue a backfill for its history →</a></>, "var(--on)"]
     : searchParams?.updated ? ["Updated.", "var(--on)"]
     : searchParams?.probing ? [`Probing ${searchParams.probing} — the result lands in its row in about a minute. Refresh to see it.`, "var(--on)"]
     : searchParams?.err ? [`Couldn't do that: ${searchParams.err}`, "var(--off)"] : null;
@@ -131,6 +134,39 @@ export default async function Connections({ searchParams }) {
               </>
             )}
 
+            <details id={prov.key === (searchParams?.source ? (sources || []).find((x) => x.source === searchParams.source)?.provider : "") ? "attach" : undefined}
+                     open={!!(searchParams?.warn && (sources || []).find((x) => x.source === searchParams.source)?.provider === prov.key)}
+                     style={{ marginTop: 12 }}>
+              <summary className="muted" style={{ cursor: "pointer", fontSize: 13 }}>Attach an account by ID (for one discovery can&apos;t see)</summary>
+              {isAdmin ? (
+                <form action={attachById} style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end", margin: "8px 0 0" }}>
+                  {searchParams?.warn && (sources || []).find((x) => x.source === searchParams.source)?.provider === prov.key && (
+                    <div style={{ flexBasis: "100%", fontSize: 13, color: "var(--risk)", background: "rgba(169,118,0,.10)", padding: "8px 10px", borderRadius: 8 }}>
+                      <strong>{searchParams.external_id}</strong> isn&apos;t among the {PLATFORM_LABEL[searchParams.source] || searchParams.source} accounts this credential can see.
+                      Either the ID is wrong (check it digit by digit — property IDs are 9 digits, Ads customer IDs 10) or the {prov.label} user hasn&apos;t been granted access yet.
+                      Attach anyway if you&apos;re sure; it&apos;s probed immediately either way.
+                      <input type="hidden" name="confirm" value="1" />
+                    </div>
+                  )}
+                  <label style={{ margin: 0 }}>Client
+                    <select name="client_id" required defaultValue={searchParams?.warn ? searchParams.client_id : (clients || []).find((c) => c.slug === searchParams?.client)?.id || ""} style={{ minWidth: 180 }}>
+                      <option value="" disabled>Select…</option>
+                      {(clients || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </label>
+                  <label style={{ margin: 0 }}>Source
+                    <select name="source" defaultValue={searchParams?.warn ? searchParams.source : provSources.find((x) => x.active)?.source || ""} style={{ width: "auto" }}>
+                      {provSources.filter((x) => x.active).map((x) => <option key={x.source} value={x.source}>{x.label}</option>)}
+                    </select>
+                  </label>
+                  <label style={{ margin: 0, flex: 1, minWidth: 200 }}>Account / property ID<input name="external_id" required defaultValue={searchParams?.warn ? searchParams.external_id : ""} placeholder={prov.key === "google" ? "GA4 property 9 digits · Ads customer 10 digits" : prov.key === "meta" ? "ad account / page ID (digits)" : "company ID (COM…)"} /></label>
+                  <label style={{ margin: 0, minWidth: 150 }}>Label<input name="label" defaultValue={searchParams?.warn ? searchParams.label : ""} placeholder="how it shows on the client page" /></label>
+                  {prov.key === "callrail" && <label style={{ margin: 0, width: 160 }}>CallRail account ID<input name="account_id" defaultValue={searchParams?.warn ? searchParams.account_id : ""} placeholder="ACC…" /></label>}
+                  <button type="submit" style={{ margin: 0 }}>{searchParams?.warn && (sources || []).find((x) => x.source === searchParams.source)?.provider === prov.key ? "Attach anyway" : "Attach & probe"}</button>
+                </form>
+              ) : <p className="muted" style={{ fontSize: 12 }}>Admins only.</p>}
+            </details>
+
             <h3 style={{ fontSize: 14, margin: "14px 0 6px" }}>Mapped accounts</h3>
             <table>
               <thead><tr><th>Client</th><th>Source</th><th>Account</th><th>Last probe</th><th></th></tr></thead>
@@ -138,7 +174,7 @@ export default async function Connections({ searchParams }) {
                 {provMappings.sort((a, b) => (a.clients?.name || "").localeCompare(b.clients?.name || "") || a.source.localeCompare(b.source)).map((m) => {
                   const p = probeFor(m.source, m.external_id);
                   return (
-                    <tr key={m.id} id={`mapping-${m.id}`} style={{ ...(!m.active ? { opacity: 0.55 } : {}), ...(String(searchParams?.mapping || "") === String(m.id) ? { outline: "2px solid var(--txt)", outlineOffset: -2, background: "var(--panel2)" } : {}) }}>
+                    <tr key={m.id} id={`mapping-${m.id}`} style={{ ...(!m.active ? { opacity: 0.55 } : {}), ...(String(searchParams?.mapping || "") === String(m.id) ? { outline: "2px solid var(--txt)", outlineOffset: -2, background: "var(--panel2)" } : (searchParams?.client && m.clients?.slug === searchParams.client ? { background: "var(--panel2)" } : {})) }}>
                       <td>{m.clients?.name || "—"}</td>
                       <td className="muted">{m.source}</td>
                       <td style={{ whiteSpace: "normal", fontSize: 12 }}>

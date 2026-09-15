@@ -83,24 +83,4 @@ const root = new URL("../../", import.meta.url);
 writeFileSync(new URL("orchestrator/google-ads-mcc-script.js", root), MCC);
 writeFileSync(new URL("orchestrator/google-ads-account-script.js", root), ACCOUNT);
 
-// the console generator holds the same script as a template string
-const gen = `// Generates a per-account Google Ads Script for accounts Deksia does NOT manage.
-// GENERATED from orchestrator/gads/_body.js — rebuild: node orchestrator/gads/build.mjs
-// The write token stays a placeholder: we never render a secret into the browser.
-
-const TEMPLATE = ${JSON.stringify(TEMPLATE)};
-
-// accountId/accountLabel make the script unique per account: the header names it and
-// EXPECT_CID refuses to run if it's pasted into the wrong account.
-export function generateGoogleAdsScript(slug, name, accountId = "", accountLabel = "") {
-  const dashed = String(accountId).replace(/\\D/g, "")
-    .replace(/^(\\d{3})(\\d{3})(\\d{4})$/, "$1-$2-$3");
-  return TEMPLATE
-    .replace(/__CLIENT_SLUG__/g, slug)
-    .replace(/__CLIENT_NAME__/g, name || slug)
-    .replace(/__ACCOUNT_ID__/g, dashed || "")
-    .replace(/__ACCOUNT_LABEL__/g, accountLabel || dashed || "this account");
-}
-`;
-writeFileSync(new URL("web/lib/googleAdsScript.js", root), gen);
-console.log("built: mcc script, account script, console generator");
+// (The console script generator was retired 2026-09-15: Google Ads is pulled by API.)

@@ -7,10 +7,7 @@ export const dynamic = "force-dynamic";
 const num = (v, d = 0) => (v == null ? "—" : Number(v).toLocaleString(undefined, { maximumFractionDigits: d }));
 const when = (ts) => (ts ? new Date(ts).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—");
 
-const PROVIDER_LABEL = {
-  meta: "Meta access token", google_oauth: "Google OAuth (GA4)",
-  callrail: "CallRail API key", ingest_token: "Ingest token (Ads Scripts)",
-};
+const PROVIDER_LABEL = { meta: "Meta token", google_oauth: "Google OAuth", callrail: "CallRail key" };
 
 function credPill(c) {
   if (c.status === "expired") return ["off_track", "expired"];
@@ -83,7 +80,7 @@ export default async function Pipeline({ searchParams }) {
   const credIssues = (creds || []).filter((c) => ["off_track", "stale"].includes(credPill(c)[0])).length;
 
   const accessIssues = unreachable.length;
-  const credPills = (creds || []).map((c) => [c.provider, ...credPill(c)]);
+  const credPills = (creds || []).filter((c) => c.provider !== "ingest_token").map((c) => [c.provider, ...credPill(c)]);
   const mappingFor = (p) => (sources || []).find((s) => s.source === p.source && String(s.external_id).replace(/\D/g, "") === String(p.external_id).replace(/\D/g, ""));
   const clientFor = (slug) => (clients || []).find((c) => c.slug === slug);
 
@@ -143,7 +140,7 @@ export default async function Pipeline({ searchParams }) {
                   {chk.status === "ok"
                     ? `No gaps in the last ${chk.summary?.window_days ?? 14} days — every source-day present or verified with the platform.`
                     : chk.summary?.google_ads_gaps?.length
-                      ? `Google Ads missing: ${chk.summary.google_ads_gaps.join(", ")} — run the MCC backfill script for those dates.`
+                      ? `Google Ads days missing: ${chk.summary.google_ads_gaps.join(", ")} — queue a Google Ads backfill below (or wait: the sentinel retries once the quota is back).`
                       : `${chk.summary?.sweep_failures ?? "?"} re-pull failure(s) during the gap sweep — check the run log.`}
                 </span>
                 {chk.gaps_found > 0 && chk.rows_healed > 0 && (
@@ -167,18 +164,18 @@ export default async function Pipeline({ searchParams }) {
             {isAdmin && (
               <form action={createBackfill} style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap", margin: 0 }}>
                 <label style={{ margin: 0 }}>Platform
-                  <select name="source" defaultValue="" style={{ width: "auto" }}>
+                  <select name="source" defaultValue={searchParams?.source || ""} style={{ width: "auto" }}>
                     <option value="">all</option>
                     {registry.map(([src, label]) => <option key={src} value={src}>{label}</option>)}
                   </select>
                 </label>
                 <label style={{ margin: 0 }}>Client
-                  <select name="client_slug" defaultValue="" style={{ width: "auto", maxWidth: 220 }}>
+                  <select name="client_slug" defaultValue={searchParams?.client || ""} style={{ width: "auto", maxWidth: 220 }}>
                     <option value="">all clients</option>
                     {(clients || []).map((c) => <option key={c.id} value={c.slug}>{c.name}</option>)}
                   </select>
                 </label>
-                <label style={{ margin: 0 }}>From<input name="start" type="date" defaultValue={`${new Date().getUTCFullYear()}-01-01`} style={{ width: "auto" }} /></label>
+                <label style={{ margin: 0 }}>From<input name="start" type="date" defaultValue={searchParams?.start || `${new Date().getUTCFullYear()}-01-01`} style={{ width: "auto" }} /></label>
                 <label style={{ margin: 0 }}>To<input name="end" type="date" defaultValue={new Date(Date.now() - 864e5).toISOString().slice(0, 10)} style={{ width: "auto" }} /></label>
                 <label style={{ margin: 0, flex: "1 1 160px" }}>Note<input name="note" placeholder="why (optional)" /></label>
                 <button type="submit" style={{ margin: 0 }}>Queue backfill</button>

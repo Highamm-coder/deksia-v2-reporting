@@ -1,6 +1,4 @@
 import { getSupabaseServer } from "../../../../lib/supabase/server";
-import ScriptBlock from "../../../_components/ScriptBlock";
-import { generateGoogleAdsScript } from "../../../../lib/googleAdsScript";
 import { addDerived, setDerivedActive, setMetricDepth, repullClient } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +22,6 @@ export default async function SettingsTab({ params, searchParams }) {
   const dmsg = searchParams?.derr ? "Couldn't save — needs a name plus at least one numerator and one denominator metric."
     : searchParams?.dok ? "Computed metric added — it's live on the dashboard." : null;
   const sources = (client.client_sources || []).sort((a, b) => a.source.localeCompare(b.source) || String(a.external_id).localeCompare(String(b.external_id)));
-  const gAdsScript = generateGoogleAdsScript(client.slug, client.name);
 
   // Meta depth: how many distinct metric names this client actually has stored, so the
   // choice is made against the real number rather than a promise about it.
@@ -214,14 +211,6 @@ export default async function SettingsTab({ params, searchParams }) {
         <button type="submit" style={{ margin: 0 }}>Add computed metric</button>
       </form>
 
-      <h2>Google Ads — account we don&apos;t manage</h2>
-      <p className="muted" style={{ margin: "0 0 8px", fontSize: 13 }}>
-        For a Google Ads account not under the Deksia MCC, generate this client-specific script and
-        have whoever manages that account paste it into <strong>Google Ads → Tools → Bulk actions →
-        Scripts → New script</strong>, then Authorize → Run once → schedule Daily. Replace{" "}
-        <code>PASTE_INGEST_TOKEN</code> with the current ingest token before installing.
-      </p>
-      <ScriptBlock code={gAdsScript} filename={`google-ads-${client.slug}.js`} />
     </>
   );
 }

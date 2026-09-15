@@ -42,3 +42,18 @@ export async function removeAdmin(formData) {
   await supabase.from("admins").delete().eq("email", email);
   return back();
 }
+
+// Create a client shell (moved from /admin/onboarding, 2026-09-15). Accounts get attached
+// on /connections, where discovery shows what each credential can already see.
+export async function createClient(formData) {
+  const supabase = getSupabaseServer();
+  const { data: isAdmin } = await supabase.rpc("is_admin");
+  if (!isAdmin) redirect("/admin?err=forbidden#new-client");
+  const name = String(formData.get("name") || "").trim();
+  const slug = (String(formData.get("slug") || "").trim() || name).slice(0, 40);
+  const timezone = String(formData.get("timezone") || "America/Detroit");
+  if (!name || !slug) redirect("/admin?err=missing#new-client");
+  const { error } = await supabase.from("clients").insert({ slug, name, status: "active", timezone });
+  revalidatePath("/admin"); revalidatePath("/clients"); revalidatePath("/connections");
+  redirect(error ? "/admin?err=client#new-client" : `/admin?created=${encodeURIComponent(slug)}#new-client`);
+}
