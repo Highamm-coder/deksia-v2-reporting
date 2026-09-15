@@ -1,7 +1,7 @@
 import { getSupabaseServer } from "../../lib/supabase/server";
 import AppShell from "../_components/AppShell";
 import { runConnectionTest } from "../pipeline/actions";
-import { mapDiscovered, setMappingActive, updateMapping } from "./actions";
+import { mapDiscovered, setMappingActive, updateMapping, probeMapping } from "./actions";
 
 export const dynamic = "force-dynamic";
 const when = (ts) => (ts ? new Date(ts).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—");
@@ -43,6 +43,7 @@ export default async function Connections({ searchParams }) {
   const probeFor = (source, ext) => (probes || []).find((p) => p.source === source && norm(p.external_id) === norm(ext));
   const msg = searchParams?.mapped ? [`Mapped ${searchParams.mapped}. It's probed tonight and pulled from tomorrow's run; queue a backfill for history.`, "var(--on)"]
     : searchParams?.updated ? ["Updated.", "var(--on)"]
+    : searchParams?.probing ? [`Probing ${searchParams.probing} — the result lands in its row in about a minute. Refresh to see it.`, "var(--on)"]
     : searchParams?.err ? [`Couldn't do that: ${searchParams.err}`, "var(--off)"] : null;
 
   return (
@@ -158,13 +159,23 @@ export default async function Connections({ searchParams }) {
                       </td>
                       <td>
                         {isAdmin && (
-                          <form action={setMappingActive} style={{ margin: 0 }}>
-                            <input type="hidden" name="id" value={m.id} />
-                            <input type="hidden" name="active" value={m.active ? "false" : "true"} />
-                            <button type="submit" style={{ margin: 0, padding: "4px 9px", background: "var(--panel2)", color: "var(--muted)", border: "1px solid var(--line)" }}>
-                              {m.active ? "Deactivate" : "Reactivate"}
-                            </button>
-                          </form>
+                          <div style={{ display: "flex", gap: 6 }}>
+                            {m.active && (
+                              <form action={probeMapping} style={{ margin: 0 }}>
+                                <input type="hidden" name="slug" value={m.clients?.slug || ""} />
+                                <input type="hidden" name="source" value={m.source} />
+                                <input type="hidden" name="external_id" value={m.external_id} />
+                                <button type="submit" title="Probe this account now (~1 min)" style={{ margin: 0, padding: "4px 9px" }}>Try again</button>
+                              </form>
+                            )}
+                            <form action={setMappingActive} style={{ margin: 0 }}>
+                              <input type="hidden" name="id" value={m.id} />
+                              <input type="hidden" name="active" value={m.active ? "false" : "true"} />
+                              <button type="submit" style={{ margin: 0, padding: "4px 9px", background: "var(--panel2)", color: "var(--muted)", border: "1px solid var(--line)" }}>
+                                {m.active ? "Deactivate" : "Reactivate"}
+                              </button>
+                            </form>
+                          </div>
                         )}
                       </td>
                     </tr>

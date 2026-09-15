@@ -56,3 +56,25 @@ export async function updateMapping(formData) {
   const { error } = await supabase.from("client_sources").update({ external_id, params, updated_at: new Date().toISOString() }).eq("id", id);
   back(error ? `?err=${encodeURIComponent(error.message.slice(0, 120))}` : "?updated=1");
 }
+
+// Probe one account now: dispatch a probe-only run scoped to it. Credentials live in
+// GitHub Actions, so that is the only place a real read can happen. ~30-60 s.
+export async function probeMapping(formData) {
+  const supabase = getSupabaseServer();
+  const { data: isAdmin } = await supabase.rpc("is_admin");
+  if (!isAdmin) back("?err=forbidden");
+  const slug = String(formData.get("slug") || "");
+  const source = String(formData.get("source") || "");
+  const external_id = String(formData.get("external_id") || "");
+  const token = (process.env.GITHUB_DISPATCH_TOKEN || "").trim();
+  if (!token) back("?err=No%20GITHUB_DISPATCH_TOKEN%20in%20Vercel");
+  const res = await fetch(
+    "https://api.github.com/repos/Highamm-coder/deksia-v2-reporting/actions/workflows/orchestrate.yml/dispatches",
+    { method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" },
+      body: JSON.stringify({ ref: "main", inputs: { probe_only: true, only_slug: slug, only_source: source, only_account: external_id } }) },
+  );
+  if (res.ok) back(`?probing=${encodeURIComponent(external_id)}`);
+  let why = `${res.status}`;
+  try { const b = await res.json(); if (b?.message) why += ` ${b.message}`; } catch { /* non-JSON */ }
+  back(`?err=${encodeURIComponent(("GitHub: " + why).slice(0, 120))}`);
+}

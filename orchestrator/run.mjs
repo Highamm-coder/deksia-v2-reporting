@@ -54,6 +54,10 @@ let END   = process.env.RUN_END   || process.env.RUN_DATE || etDate(-1);
 const ONLY_SLUG = (process.env.ONLY_SLUG || "").trim();
 // Pull one source only (e.g. a Google Ads backfill month without re-pulling Meta/GA4).
 const ONLY_SOURCE = (process.env.ONLY_SOURCE || "").trim();
+// Probe/pull one account only (external id, digits compared) — the Connections page's
+// per-account "Try again" dispatches PROBE_ONLY with this set.
+const ONLY_ACCOUNT = (process.env.ONLY_ACCOUNT || "").trim();
+const sameId = (a, b) => String(a).replace(/\D/g, "") === String(b).replace(/\D/g, "") && String(a) !== "";
 
 // Meta 'brk:' breakouts (placement / demo / device) are non-additive drill-down that
 // prune_metrics() deletes past BRK_RETENTION_DAYS. Writing them for a window that is
@@ -1201,8 +1205,14 @@ async function main() {
   } catch (e) { console.warn("discovery failed:", e.message); }
 
   try {
-    const allMappings = await sb(
+    let allMappings = await sb(
       "client_sources?select=source,external_id,params,active,clients!inner(slug,status)&clients.status=eq.active");
+    if (ONLY_SLUG || ONLY_SOURCE || ONLY_ACCOUNT) {
+      allMappings = allMappings.filter((m) => (!ONLY_SLUG || m.clients.slug === ONLY_SLUG)
+        && (!ONLY_SOURCE || m.source === ONLY_SOURCE)
+        && (!ONLY_ACCOUNT || sameId(m.external_id, ONLY_ACCOUNT) || String(m.external_id) === ONLY_ACCOUNT));
+      console.log(`Probe scope: ${allMappings.length} mapping(s) (slug=${ONLY_SLUG || "*"} source=${ONLY_SOURCE || "*"} account=${ONLY_ACCOUNT || "*"})`);
+    }
     // Meta counts every call against one app-level limit; probe gently.
     const verdicts = await mapLimit(allMappings, 2, async (s) => {
       const [ok, detail] = await probeOne(s);
