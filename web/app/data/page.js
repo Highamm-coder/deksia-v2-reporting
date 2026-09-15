@@ -42,38 +42,10 @@ const BF_MSG = {
 };
 
 // Two tabs, two questions. Access: can we read each account? Freshness: did data land?
-const TABS = [["access", "Access"], ["freshness", "Freshness"]];
-
-function Tabs({ current, counts }) {
-  return (
-    <div style={{ display: "flex", gap: 4, borderBottom: "1px solid var(--line)", margin: "14px 0 4px" }}>
-      {TABS.map(([key, label]) => {
-        const on = key === current;
-        return (
-          <a key={key} href={`/pipeline?tab=${key}`} style={{
-            padding: "8px 14px", fontSize: 13.5, fontWeight: 600, textDecoration: "none",
-            color: on ? "var(--txt)" : "var(--muted)",
-            borderBottom: on ? "2px solid var(--txt)" : "2px solid transparent", marginBottom: -1,
-          }}>
-            {label}
-            {counts?.[key] != null && (
-              <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 600, padding: "1px 7px", borderRadius: 999,
-                background: counts[key] > 0 ? "rgba(217,48,37,.10)" : "var(--panel2)",
-                color: counts[key] > 0 ? "var(--off)" : "var(--muted)" }}>
-                {counts[key] > 0 ? `${counts[key]} issue${counts[key] === 1 ? "" : "s"}` : "all clear"}
-              </span>
-            )}
-          </a>
-        );
-      })}
-    </div>
-  );
-}
 
 export default async function Pipeline({ searchParams }) {
-  const tab = searchParams?.tab === "freshness" ? "freshness" : "access";
   const supabase = getSupabaseServer();
-  const [{ data: pipeline }, { data: creds }, { data: checks }, { data: probes }, { data: isAdmin }, { data: jobs }, { data: clients }, { data: sources }, { data: sourcesReg }] = await Promise.all([
+  const [{ data: pipeline }, { data: creds }, { data: checks }, { data: probes }, { data: isAdmin }, { data: jobs }, { data: clients }, { data: sources }, { data: sourcesReg }, { data: rollup }] = await Promise.all([
     supabase.from("v_pipeline_health").select("*").order("slug").order("source"),
     supabase.from("connector_status").select("*").order("provider"),
     supabase.from("integrity_checks").select("*").order("checked_at", { ascending: false }).limit(1),
@@ -81,8 +53,9 @@ export default async function Pipeline({ searchParams }) {
     supabase.rpc("is_admin"),
     supabase.from("v_backfill_jobs").select("*").order("created_at", { ascending: false }).limit(20),
     supabase.from("clients").select("id, slug, name, status").neq("status", "archived").order("name"),
-    supabase.from("client_sources").select("client_id, source, external_id, active"),
+    supabase.from("client_sources").select("id, client_id, source, external_id, active, params"),
     supabase.from("v_sources").select("source, label, active").neq("source", "manual"),
+    supabase.from("rollup_status").select("refreshed_at").eq("id", 1).maybeSingle(),
   ]);
   const registry = (sourcesReg || []).filter((r) => r.active).map((r) => [r.source, r.label]);
 
@@ -101,7 +74,7 @@ export default async function Pipeline({ searchParams }) {
 
   const probeRows = probes || [];
   const probedAt = probeRows.length ? probeRows.map((p) => p.probed_at).sort().at(-1) : null;
-  const unreachable = probeRows.filter((p) => p.active && !p.reachable && p.source !== "google_ads");
+  const unreachable = probeRows.filter((p) => p.active && !p.reachable);
   const fresh = (pipeline || []).filter((r) => r.sync_status === "fresh").length;
   const notFresh = (pipeline || []).filter((r) => r.sync_status !== "fresh" && r.sync_status !== "idle").length;
   const chk = checks?.[0] || null;
@@ -109,10 +82,15 @@ export default async function Pipeline({ searchParams }) {
   // only expired / expiring credentials are issues; "unknown" (no read this run) is not
   const credIssues = (creds || []).filter((c) => ["off_track", "stale"].includes(credPill(c)[0])).length;
 
+  const accessIssues = unreachable.length;
+  const credPills = (creds || []).map((c) => [c.provider, ...credPill(c)]);
+  const mappingFor = (p) => (sources || []).find((s) => s.source === p.source && String(s.external_id).replace(/\D/g, "") === String(p.external_id).replace(/\D/g, ""));
+  const clientFor = (slug) => (clients || []).find((c) => c.slug === slug);
+
   return (
     <AppShell>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-        <h1 style={{ fontSize: 24, margin: "0 0 2px" }}>Pipeline health</h1>
+        <h1 style={{ fontSize: 24, margin: "0 0 2px" }}>Data health</h1>
         {isAdmin && (
           <form action={runConnectionTest} style={{ margin: 0 }}>
             <button type="submit" style={{ margin: 0 }}>⚡ Test connections now</button>
@@ -121,59 +99,38 @@ export default async function Pipeline({ searchParams }) {
       </div>
       {testMsg && <div style={{ margin: "6px 0 0", fontSize: 13, color: testMsg[1] }}>{testMsg[0]}</div>}
 
-      <Tabs current={tab} counts={{ access: unreachable.length + credIssues, freshness: notFresh }} />
+      {/* the 5-second answer: everything that decides "is it fine", one line, no scrolling */}
+      <div className="card" style={{ maxWidth: "none", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", margin: "12px 0 4px" }}>
+        <span className={`pill ${accessIssues ? "off_track" : "fresh"}`}>{accessIssues ? `${accessIssues} access issue${accessIssues === 1 ? "" : "s"}` : "access: all clear"}</span>
+        <span className={`pill ${notFresh ? "stale" : "fresh"}`}>{notFresh ? `${notFresh} stale` : `freshness: ${fresh}/${pipeline?.length ?? 0} fresh`}</span>
+        {credPills.map(([prov, cls, txt]) => <span key={prov} className={`pill ${cls}`} title={PROVIDER_LABEL[prov] || prov}>{(PROVIDER_LABEL[prov] || prov).split(" ")[0]} · {txt}</span>)}
+        <span className={`pill ${chkPill}`}>{chk ? (chk.status === "ok" ? "integrity ✓" : chk.status === "attention" ? "integrity ⚠" : "integrity ✕") : "integrity pending"}</span>
+        {(jobs || []).some((j) => j.status === "active" && (j.deferred > 0 || j.errored > 0)) && <span className="pill stale">backfill waiting</span>}
+        <span className="muted" style={{ fontSize: 12, marginLeft: "auto" }}>
+          probed {when(probedAt)} · rollup {when(rollup?.refreshed_at)} (fill lags ring ≤1h after a fix)
+        </span>
+      </div>
 
-      {tab === "access" ? (
+      <Matrix clients={clients} sources={sources} probes={probeRows} health={pipeline} platforms={registry} />
+
+      {unreachable.length > 0 && (
         <>
-          <h2>Which accounts we can read {probedAt && <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>· tested {when(probedAt)}</span>}</h2>
-          <Matrix mode="access" clients={clients} sources={sources} probes={probeRows} platforms={registry} />
-
-          {unreachable.length > 0 && (
-            <>
-              <h2>Refused by the provider</h2>
-              <table>
-                <thead><tr><th>Client</th><th>Platform</th><th>Account</th><th style={{ whiteSpace: "normal" }}>Provider says</th></tr></thead>
-                <tbody>
-                  {unreachable.map((p) => (
-                    <tr key={`${p.client_slug}|${p.source}|${p.external_id}`}>
-                      <td>{p.client_slug}</td>
-                      <td className="muted">{p.source}</td>
-                      <td className="muted" style={{ fontSize: 12 }}>{p.external_id}</td>
-                      <td style={{ whiteSpace: "normal", fontSize: 12 }}>{p.detail}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </>
-          )}
-
-          <h2>Credentials</h2>
+          <h2>Refused by the provider</h2>
           <table>
-            <thead><tr><th>Credential</th><th>Status</th><th>Expires</th><th style={{ whiteSpace: "normal" }}>Detail</th><th>Checked</th></tr></thead>
+            <thead><tr><th>Client</th><th>Platform</th><th>Account</th><th style={{ whiteSpace: "normal" }}>Provider says</th><th></th></tr></thead>
             <tbody>
-              {(creds || []).map((c) => {
-                const [cls, txt] = credPill(c);
-                return (
-                  <tr key={c.provider}>
-                    <td>{PROVIDER_LABEL[c.provider] || c.provider}</td>
-                    <td><span className={`pill ${cls}`}>{txt}</span></td>
-                    <td>{c.expires_at ? new Date(c.expires_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "—"}</td>
-                    <td className="muted" style={{ whiteSpace: "normal", fontSize: 12 }}>{c.detail}</td>
-                    <td className="muted" style={{ fontSize: 12 }}>{when(c.checked_at)}</td>
-                  </tr>
-                );
-              })}
+              {unreachable.map((p) => { const m = mappingFor(p); const c = clientFor(p.client_slug); return (
+                <tr key={`${p.client_slug}|${p.source}|${p.external_id}`}>
+                  <td>{c?.name || p.client_slug}</td>
+                  <td className="muted">{PLATFORM_NAME[p.source] || p.source}</td>
+                  <td className="muted" style={{ fontSize: 12 }}>{m?.params?.label ? `${m.params.label} · ` : ""}{p.external_id}</td>
+                  <td style={{ whiteSpace: "normal", fontSize: 12 }}>{p.detail}</td>
+                  <td>{m && <a href={`/connections?client=${encodeURIComponent(p.client_slug)}&mapping=${m.id}#mapping-${m.id}`} style={{ fontSize: 12, fontWeight: 600 }}>Fix →</a>}</td>
+                </tr>); })}
             </tbody>
           </table>
-          <p className="muted" style={{ margin: "4px 0 18px", fontSize: 12 }}>
-            Every mapped account is probed nightly with the live credential. Meta expiry is read from Facebook&apos;s own
-            token introspection on every run — never hand-maintained. Use the button above after rotating a credential.
-          </p>
         </>
-      ) : (
-        <>
-          <h2>Did data land — {fresh}/{pipeline?.length ?? 0} fresh</h2>
-          <Matrix mode="freshness" clients={clients} sources={sources} health={pipeline} platforms={registry} />
+      )}
 
           <h2>Data integrity</h2>
           <div className="card" style={{ maxWidth: "none", display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
@@ -274,24 +231,6 @@ export default async function Pipeline({ searchParams }) {
             ) : <p className="muted" style={{ fontSize: 12.5, margin: "8px 0 0" }}>No backfills queued.</p>}
           </div>
 
-          <h2>Detail by account</h2>
-          <table>
-            <thead><tr><th>Client</th><th>Platform</th><th>Status</th><th>Last data</th><th className="num">Rows 30d</th><th className="num">Metrics</th></tr></thead>
-            <tbody>
-              {(pipeline || []).map((r, i) => (
-                <tr key={i}>
-                  <td><a href={`/clients/${encodeURIComponent(r.slug)}`}>{r.slug}</a></td>
-                  <td className="muted">{r.source}</td>
-                  <td><span className={`pill ${r.sync_status}`}>{r.sync_status?.replace("_", " ")}</span></td>
-                  <td>{r.last_metric_date || "—"}</td>
-                  <td className="num">{num(r.rows_30d)}</td>
-                  <td className="num">{num(r.metric_count)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </>
-      )}
     </AppShell>
   );
 }

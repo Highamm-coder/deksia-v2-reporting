@@ -1,6 +1,6 @@
 import { getSupabaseServer } from "../../lib/supabase/server";
 import AppShell from "../_components/AppShell";
-import { runConnectionTest } from "../pipeline/actions";
+import { runConnectionTest } from "../data/actions";
 import { mapDiscovered, setMappingActive, updateMapping, probeMapping } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -138,7 +138,7 @@ export default async function Connections({ searchParams }) {
                 {provMappings.sort((a, b) => (a.clients?.name || "").localeCompare(b.clients?.name || "") || a.source.localeCompare(b.source)).map((m) => {
                   const p = probeFor(m.source, m.external_id);
                   return (
-                    <tr key={m.id} style={!m.active ? { opacity: 0.55 } : undefined}>
+                    <tr key={m.id} id={`mapping-${m.id}`} style={{ ...(!m.active ? { opacity: 0.55 } : {}), ...(String(searchParams?.mapping || "") === String(m.id) ? { outline: "2px solid var(--txt)", outlineOffset: -2, background: "var(--panel2)" } : {}) }}>
                       <td>{m.clients?.name || "—"}</td>
                       <td className="muted">{m.source}</td>
                       <td style={{ whiteSpace: "normal", fontSize: 12 }}>

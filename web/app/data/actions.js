@@ -8,11 +8,11 @@ import { redirect } from "next/navigation";
 export async function runConnectionTest() {
   const supabase = getSupabaseServer();
   const { data: isAdmin } = await supabase.rpc("is_admin");
-  if (!isAdmin) redirect("/pipeline?test=forbidden");
+  if (!isAdmin) redirect("/data?test=forbidden");
 
   // trim: a stray newline/space pasted into the env var yields a 401 from GitHub
   const token = (process.env.GITHUB_DISPATCH_TOKEN || "").trim();
-  if (!token) redirect("/pipeline?test=notoken");
+  if (!token) redirect("/data?test=notoken");
 
   const res = await fetch(
     "https://api.github.com/repos/Highamm-coder/deksia-v2-reporting/actions/workflows/orchestrate.yml/dispatches",
@@ -27,22 +27,22 @@ export async function runConnectionTest() {
     },
   );
 
-  revalidatePath("/pipeline");
-  if (res.ok) redirect("/pipeline?test=started");
+  revalidatePath("/data");
+  if (res.ok) redirect("/data?test=started");
   // surface GitHub's own words — guessing at auth failures wastes everyone's time
   let why = `${res.status}`;
   try {
     const body = await res.json();
     if (body?.message) why += ` ${body.message}`;
   } catch { /* non-JSON body */ }
-  redirect(`/pipeline?test=failed&why=${encodeURIComponent(why.slice(0, 200))}`);
+  redirect(`/data?test=failed&why=${encodeURIComponent(why.slice(0, 200))}`);
 }
 
 // ---- Backfills (platform-controlled) -------------------------------------------
 // A job = source (or all) × client (or all) × date range, chunked by calendar month. The
 // deksia-backfill workflow claims chunks every 2 hours; the claim function enforces the
 // Google Ads daily cap and honours 429 deferrals. Admin-gated in SQL as well as here.
-const toFreshness = (q) => redirect(`/pipeline?tab=freshness&${q}#backfills`);
+const toFreshness = (q) => redirect(`/data?${q}#backfills`);
 
 export async function createBackfill(formData) {
   const supabase = getSupabaseServer();
@@ -57,7 +57,7 @@ export async function createBackfill(formData) {
   const { error } = await supabase.rpc("create_backfill_job", {
     p_source: source || null, p_client_slug: client || null, p_start: start, p_end: end, p_note: note || null,
   });
-  revalidatePath("/pipeline");
+  revalidatePath("/data");
   if (error) toFreshness(`bf=failed&why=${encodeURIComponent(error.message.slice(0, 160))}`);
   toFreshness("bf=queued");
 }
@@ -69,7 +69,7 @@ export async function setBackfillStatus(formData) {
   const { error } = await supabase.rpc("set_backfill_job_status", {
     p_job: String(formData.get("job_id")), p_status: String(formData.get("status")),
   });
-  revalidatePath("/pipeline");
+  revalidatePath("/data");
   toFreshness(error ? `bf=failed&why=${encodeURIComponent(error.message.slice(0, 160))}` : "bf=updated");
 }
 

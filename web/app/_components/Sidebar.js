@@ -5,8 +5,6 @@ import { logout } from "../login/actions";
 
 const NAV = [
   ["/", "Scoreboard", "◎"],
-  ["/pipeline", "Pipeline health", "◧"],
-  ["/connections", "Connections", "⛓"],
   ["/clients", "Clients", "▤"],
   ["/account", "Account", "⚙"],
 ];
@@ -94,22 +92,22 @@ export default function Sidebar({ clients = [], lastSync = null, email = null, c
       </div>
 
       <div style={{ height: 8 }} />
-      {[...NAV, ...(isAdmin ? [["/admin", "Admin", "◆"]] : [])].map(([href, label, ic]) => (
+      {[...NAV, ...(isAdmin ? [["/data", "Data health", "◧"], ["/connections", "Connections", "⛓"], ["/admin", "Admin", "◆"]] : [])].map(([href, label, ic]) => (
         <a key={href} href={href} className={`navlink${isActive(href) ? " active" : ""}`}>
           <span className="ic" aria-hidden>{ic}</span>{label}
         </a>
       ))}
       <div className="grow" />
       {credWarning && (
-        <a href="/pipeline" style={{ textDecoration: "none", display: "block", background: "rgba(169,118,0,.10)",
+        <a href="/data" style={{ textDecoration: "none", display: "block", background: "rgba(169,118,0,.10)",
           border: "1px solid rgba(169,118,0,.35)", borderRadius: 12, padding: "10px 12px", marginBottom: 6 }}>
           <div style={{ fontWeight: 700, fontSize: 12, color: "var(--risk)" }}>⚠ {credWarning}</div>
           <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>view credentials →</div>
         </a>
       )}
-      <a href="/pipeline" className="card-cta" style={{ textDecoration: "none", color: "var(--txt)" }}>
+      <a href="/data" className="card-cta" style={{ textDecoration: "none", color: "var(--txt)" }}>
         <div style={{ fontWeight: 700, fontSize: 13 }}>Last sync</div>
-        <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{syncTxt} · view pipeline →</div>
+        <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{syncTxt} · view data health →</div>
         {integrity && (
           <div style={{ fontSize: 12, marginTop: 6, fontWeight: 600,
             color: integrity.status === "ok" ? "var(--on)" : integrity.status === "attention" ? "var(--risk)" : "var(--off)" }}>

@@ -36,7 +36,7 @@ export default async function AdminPage() {
       <h1 style={{ fontSize: 24, margin: "0 0 4px" }}>Admin</h1>
       <p className="muted" style={{ margin: "0 0 10px", fontSize: 13 }}>
         Users, access, and bug reports. <a href="/admin/onboarding">Client onboarding →</a> ·
-        credential health on <a href="/pipeline">Pipeline health</a>.
+        credential health on <a href="/connections">Connections</a>.
       </p>
 
       <section>
