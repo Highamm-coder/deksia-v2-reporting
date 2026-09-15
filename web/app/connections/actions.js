@@ -35,3 +35,24 @@ export async function setMappingActive(formData) {
   await supabase.from("client_sources").update({ active, updated_at: new Date().toISOString() }).eq("id", id);
   back("?updated=1");
 }
+
+// Correct a mapping's account ID or label in place. History already written under the old
+// ID stays attributed to it (provenance); the probe and pull use the new ID from tonight.
+export async function updateMapping(formData) {
+  const supabase = getSupabaseServer();
+  const { data: isAdmin } = await supabase.rpc("is_admin");
+  if (!isAdmin) back("?err=forbidden");
+  const id = String(formData.get("id") || "");
+  const external_id = String(formData.get("external_id") || "").trim();
+  const label = String(formData.get("label") || "").trim();
+  if (!id || !external_id) back("?err=missing");
+  const { data: row } = await supabase.from("client_sources").select("external_id, params").eq("id", id).maybeSingle();
+  if (!row) back("?err=notfound");
+  const params = { ...(row.params || {}) };
+  if (label) params.label = label; else delete params.label;
+  if (row.external_id !== external_id) {
+    params.previous_ids = [...(params.previous_ids || []), { id: row.external_id, changed_at: new Date().toISOString() }];
+  }
+  const { error } = await supabase.from("client_sources").update({ external_id, params, updated_at: new Date().toISOString() }).eq("id", id);
+  back(error ? `?err=${encodeURIComponent(error.message.slice(0, 120))}` : "?updated=1");
+}

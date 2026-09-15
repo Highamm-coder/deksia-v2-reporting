@@ -1,7 +1,7 @@
 import { getSupabaseServer } from "../../lib/supabase/server";
 import AppShell from "../_components/AppShell";
 import { runConnectionTest } from "../pipeline/actions";
-import { mapDiscovered, setMappingActive } from "./actions";
+import { mapDiscovered, setMappingActive, updateMapping } from "./actions";
 
 export const dynamic = "force-dynamic";
 const when = (ts) => (ts ? new Date(ts).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—");
@@ -140,7 +140,17 @@ export default async function Connections({ searchParams }) {
                     <tr key={m.id} style={!m.active ? { opacity: 0.55 } : undefined}>
                       <td>{m.clients?.name || "—"}</td>
                       <td className="muted">{m.source}</td>
-                      <td style={{ whiteSpace: "normal", fontSize: 12 }}>{m.params?.label ? <>{m.params.label} <span className="muted">· {m.external_id}</span></> : m.external_id}</td>
+                      <td style={{ whiteSpace: "normal", fontSize: 12 }}>
+                        {isAdmin ? (
+                          <form action={updateMapping} id={`edit-${m.id}`} style={{ margin: 0, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                            <input type="hidden" name="id" value={m.id} />
+                            <input name="label" defaultValue={m.params?.label || ""} placeholder="label" style={{ width: 150, margin: 0, padding: "4px 7px", fontSize: 12 }} />
+                            <input name="external_id" defaultValue={m.external_id} required style={{ width: 150, margin: 0, padding: "4px 7px", fontSize: 12, fontFamily: "ui-monospace, monospace" }} />
+                            <button type="submit" style={{ margin: 0, padding: "4px 9px" }}>Save</button>
+                          </form>
+                        ) : (m.params?.label ? <>{m.params.label} <span className="muted">· {m.external_id}</span></> : m.external_id)}
+                        {m.params?.previous_ids?.length > 0 && <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>was {m.params.previous_ids.map((p) => p.id).join(", ")}</div>}
+                      </td>
                       <td style={{ whiteSpace: "normal", fontSize: 12 }}>
                         {!m.active ? <span className="muted">inactive</span>
                           : p ? <><span style={{ display: "inline-block", width: 9, height: 9, borderRadius: 99, background: p.reachable ? "var(--on)" : "var(--off)", marginRight: 6 }} />{p.detail}</>
