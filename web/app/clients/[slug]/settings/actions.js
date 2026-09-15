@@ -16,6 +16,7 @@ const parseTerms = (vals) =>
 // Create a computed metric (ratio of sums over additive platform metrics).
 export async function addDerived(formData) {
   const slug = String(formData.get("slug"));
+  { const sb = getSupabaseServer(); const { data: isAdmin } = await sb.rpc("is_admin"); if (!isAdmin) return back(slug, "?derr=forbidden"); }
   const label = String(formData.get("label") || "").trim();
   const unit = ["usd", "ratio", "pct", "int"].includes(formData.get("unit")) ? formData.get("unit") : "usd";
   const numerator = parseTerms(formData.getAll("num"));
@@ -44,6 +45,7 @@ export async function addDerived(formData) {
 // Archive / restore a computed metric.
 export async function setDerivedActive(formData) {
   const slug = String(formData.get("slug"));
+  { const sb = getSupabaseServer(); const { data: isAdmin } = await sb.rpc("is_admin"); if (!isAdmin) return back(slug, "?derr=forbidden"); }
   const id = String(formData.get("id"));
   const active = String(formData.get("active")) === "true";
   const supabase = getSupabaseServer();
@@ -72,35 +74,22 @@ export async function setMetricDepth(formData) {
   return back(slug, error ? "?depth=failed" : `?depth=${depth}`, "metric-depth");
 }
 
-// Re-pull one client over a date range. Changing depth only affects days that get
-// pulled again, so switching a client to full is inert until this runs. Targeted by
-// slug so we don't re-pull 13 accounts to backfill one.
+// Re-pull one client over a date range — as a backfill JOB, never a raw run. The job is
+// chunked by month, Google Ads is held to 3 chunks/day by quota, and a vendor "retry later"
+// defers instead of failing (the raw dispatch this replaced did none of that).
 export async function repullClient(formData) {
   const slug = String(formData.get("slug"));
   const start = String(formData.get("start") || "");
   const end = String(formData.get("end") || "");
+  const source = String(formData.get("source") || "");
   const supabase = getSupabaseServer();
   const { data: isAdmin } = await supabase.rpc("is_admin");
   if (!isAdmin) return back(slug, "?repull=forbidden", "metric-depth");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) return back(slug, "?repull=baddate", "metric-depth");
-
-  const token = (process.env.GITHUB_DISPATCH_TOKEN || "").trim();
-  if (!token) return back(slug, "?repull=notoken", "metric-depth");
-
-  const res = await fetch(
-    "https://api.github.com/repos/Highamm-coder/deksia-v2-reporting/actions/workflows/orchestrate.yml/dispatches",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/vnd.github+json",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ ref: "main", inputs: { run_start: start, run_end: end, only_slug: slug } }),
-    },
-  );
-  if (res.ok) return back(slug, "?repull=started", "metric-depth");
-  let why = `${res.status}`;
-  try { const b = await res.json(); if (b?.message) why += ` ${b.message}`; } catch { /* non-JSON */ }
-  return back(slug, `?repull=failed&why=${encodeURIComponent(why.slice(0, 200))}`, "metric-depth");
+  const { error } = await supabase.rpc("create_backfill_job", {
+    p_source: source || null, p_client_slug: slug, p_start: start, p_end: end,
+    p_note: `re-pull from ${slug} settings${source ? ` (${source})` : ""}`,
+  });
+  if (error) return back(slug, `?repull=failed&why=${encodeURIComponent(error.message.slice(0, 160))}`, "metric-depth");
+  return back(slug, "?repull=queued", "metric-depth");
 }

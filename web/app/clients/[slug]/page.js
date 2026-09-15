@@ -6,6 +6,7 @@ import Events from "./Events";
 import LeadSources from "./LeadSources";
 import PlatformNav from "./PlatformNav";
 import MonthPicker from "./MonthPicker";
+import { statusSentence, toneColor } from "../../../lib/statusSentence";
 
 export const dynamic = "force-dynamic";
 const num = (v, d = 0) => (v == null ? "—" : Number(v).toLocaleString(undefined, { maximumFractionDigits: d }));
@@ -32,7 +33,7 @@ const pct = (cur, prev) => (prev != null && Number(prev) !== 0 ? (Number(cur) - 
 export default async function ClientDashboard({ params, searchParams }) {
   const slug = decodeURIComponent(params.slug);
   const supabase = getSupabaseServer();
-  const [{ data: monthly }, { data: campaignsAll }, { data: goals }, { data: provRows }, { data: derivedAll }, { data: health }, { data: eventsAll }, { data: objectivesAll }, { data: drillAll }, { data: leadSrcAll }] = await Promise.all([
+  const [{ data: monthly }, { data: campaignsAll }, { data: goals }, { data: provRows }, { data: derivedAll }, { data: health }, { data: eventsAll }, { data: objectivesAll }, { data: drillAll }, { data: leadSrcAll }, { data: statusRows }] = await Promise.all([
     supabase.from("v_client_monthly").select("*").eq("slug", slug),
     supabase.from("v_client_campaigns_all").select("*").eq("slug", slug),
     supabase.from("v_goal_scoreboard").select("*").eq("slug", slug).order("metric_name"),
@@ -43,6 +44,7 @@ export default async function ClientDashboard({ params, searchParams }) {
     supabase.from("client_objectives").select("*, clients!inner(slug)").eq("clients.slug", slug).eq("active", true).order("kind").order("position").order("created_at"),
     supabase.from("v_client_campaign_drill").select("*").eq("slug", slug),
     supabase.from("v_client_lead_sources").select("*").eq("slug", slug),
+    supabase.from("v_client_source_status").select("*").eq("slug", slug),
   ]);
   const objectives = objectivesAll || [];
   const goalById = {};
@@ -203,7 +205,8 @@ export default async function ClientDashboard({ params, searchParams }) {
                   No {PLATFORM_LABEL[p] || p} data for {M}.
                 </span>
                 {h && <span className={`pill ${h.sync_status}`}>{h.sync_status?.replace("_", " ")}</span>}
-                {h?.last_metric_date && <span className="muted" style={{ fontSize: 12 }}>last data {h.last_metric_date}</span>}
+                {(() => { const st = (statusRows || []).find((x) => x.source === p); const sent = statusSentence(st || (h ? { ...h, source: p } : null));
+                  return <span style={{ fontSize: 12, color: toneColor[sent.tone] }}>{sent.text}</span>; })()}
                 <a href={`/clients/${encodeURIComponent(slug)}/settings`} style={{ fontSize: 12 }}>source status →</a>
               </div>
             )}

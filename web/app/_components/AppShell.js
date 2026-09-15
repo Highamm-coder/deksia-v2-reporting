@@ -29,7 +29,7 @@ export default async function AppShell({ children }) {
   return (
     <div className="page">
       <div className="app">
-        <Sidebar clients={clients || []} lastSync={lastSync} email={email} credWarning={credWarning} integrity={integrity} isAdmin={!!isAdmin} />
+        <Sidebar clients={clients || []} lastSync={lastSync} email={email} credWarning={isAdmin ? credWarning : null} integrity={integrity} isAdmin={!!isAdmin} />
         <div className="content">
           <main>{children}</main>
         </div>
