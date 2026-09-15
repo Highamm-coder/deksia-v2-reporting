@@ -71,7 +71,9 @@ export default async function Pipeline({ searchParams }) {
 
   const probeRows = probes || [];
   const probedAt = probeRows.length ? probeRows.map((p) => p.probed_at).sort().at(-1) : null;
-  const unreachable = probeRows.filter((p) => p.active && !p.reachable);
+  // a refused probe only counts if its account is still mapped (old IDs linger in the probe table)
+  const isMapped = (p) => (sources || []).some((s) => s.active && s.source === p.source && String(s.external_id).replace(/\D/g, "") === String(p.external_id).replace(/\D/g, ""));
+  const unreachable = probeRows.filter((p) => p.active && !p.reachable && isMapped(p));
   const fresh = (pipeline || []).filter((r) => r.sync_status === "fresh").length;
   const notFresh = (pipeline || []).filter((r) => r.sync_status !== "fresh" && r.sync_status !== "idle").length;
   const chk = checks?.[0] || null;
