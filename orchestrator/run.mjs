@@ -369,9 +369,70 @@ async function pullSearchConsole(src) {
   const wantSplits = src.params?.metric_depth === "full" && ((EXPLICIT_WINDOW || BACKFILL_MODE) ? e >= etDate(-BRK_RETENTION_DAYS) : true);
   if (wantSplits) {
     try {
-      for (const r of await gscQuery(site, { startDate: s, endDate: e, dimensions: ["date", "query"], rowLimit: 5000 })) emit({ ...r, keys: [r.keys[0]] }, `term:${r.keys[1]}`);
+      // Top queries per day, by clicks (the API's default order). Capped at 50/day/property: the
+      // free tier cannot hold 5000/day × 4 metrics × 22 properties × 90 days (~40M rows).
+      for (const r of await gscQuery(site, { startDate: s, endDate: e, dimensions: ["date", "query"], rowLimit: 50 })) emit({ ...r, keys: [r.keys[0]] }, `term:${r.keys[1]}`);
       for (const r of await gscQuery(site, { startDate: s, endDate: e, dimensions: ["date", "device"], rowLimit: 1000 })) emit({ ...r, keys: [r.keys[0]] }, `dev:${String(r.keys[1]).toLowerCase()}`);
     } catch (err) { console.warn(`  search_console ${src.slug} splits skipped: ${err.message.slice(0, 120)}`); }
+  }
+  return rows;
+}
+
+// ---- YouTube: channel-level daily metrics ----
+// Mapping external_id = the channel id (UC…). Where the Deksia Google user manages the channel,
+// the YouTube Analytics API reports day × channel views, watch time, subscribers gained/lost and
+// engagement. Otherwise only the public Data API snapshot is available — lifetime subscribers /
+// views / videos as of the pull — stored under distinct *_total names (agg = last, dated the pull
+// day) so the two families are never mixed. Analytics data finalises ~2 days late: the daily run
+// pulls a 3-day window ending 2 days back (restatements included); explicit / backfill windows
+// are pulled exactly as given, and the snapshot is taken only on the daily run (it is "now").
+const YT_LAG_DAYS = 2;
+const YT_ANALYTICS_METRICS = [
+  ["views", "views", "int"], ["watch_minutes", "estimatedMinutesWatched", "int"],
+  ["avg_view_duration_sec", "averageViewDuration", "sec"],
+  ["subscribers_gained", "subscribersGained", "int"], ["subscribers_lost", "subscribersLost", "int"],
+  ["likes", "likes", "int"], ["comments", "comments", "int"], ["shares", "shares", "int"],
+];
+async function pullYouTube(src) {
+  if (!GOOGLE_READY) return [];
+  const channel = String(src.external_id).trim();
+  const token = await getGoogleToken();
+  const h = { headers: { Authorization: `Bearer ${token}` } };
+  let s = START, e = END;
+  const daily = !EXPLICIT_WINDOW && !BACKFILL_MODE;
+  if (daily) { e = etDate(-1 - YT_LAG_DAYS); s = etDate(-3 - YT_LAG_DAYS); }
+  const rows = [];
+  const push = (metric, day, value, unit) => {
+    if (value == null || Number.isNaN(Number(value))) return;
+    rows.push({ metric_name: metric, metric_date: day, account_ext_id: channel, entity: src.params?.brand || "", qualifier: "", value: Number(value), unit });
+  };
+  // 1. Analytics API — needs owner/manager access to the channel
+  const q = new URLSearchParams({ ids: `channel==${channel}`, startDate: s, endDate: e, dimensions: "day", sort: "day",
+    metrics: YT_ANALYTICS_METRICS.map(([, api]) => api).join(",") });
+  const r = await fetchT(`https://youtubeanalytics.googleapis.com/v2/reports?${q}`, h, 60000);
+  const d = await r.json().catch(() => ({}));
+  if (r.ok) {
+    const cols = (d.columnHeaders || []).map((c) => c.name);
+    for (const row of d.rows || []) {
+      const day = row[cols.indexOf("day")];
+      for (const [metric, api, unit] of YT_ANALYTICS_METRICS) { const i = cols.indexOf(api); if (i >= 0) push(metric, day, row[i], unit); }
+    }
+  } else if (r.status === 401 || r.status === 403) {
+    console.warn(`  youtube ${src.slug}: no Analytics access to ${channel} (${r.status} ${String(d.error?.message || "").slice(0, 80)}) — public snapshot only`);
+  } else {
+    throw new Error(`youtube ${channel}: ${r.status} ${d.error?.message || JSON.stringify(d).slice(0, 160)}`);
+  }
+  // 2. Public snapshot (Data API) — lifetime counts as of right now, so daily run only
+  if (daily) {
+    const p = await fetchT(`https://www.googleapis.com/youtube/v3/channels?part=statistics&id=${encodeURIComponent(channel)}`, h, 20000);
+    const pd = await p.json().catch(() => ({}));
+    if (!p.ok) throw new Error(`youtube ${channel}: ${p.status} ${pd.error?.message || JSON.stringify(pd).slice(0, 160)}`);
+    const st = pd.items?.[0]?.statistics;
+    if (!st) throw new Error(`youtube ${channel}: channel not found`);
+    const today = etDate(0);
+    if (!st.hiddenSubscriberCount) push("subscribers_total", today, st.subscriberCount, "int");
+    push("views_total", today, st.viewCount, "int");
+    push("videos_total", today, st.videoCount, "int");
   }
   return rows;
 }
@@ -904,7 +965,7 @@ async function pullGoogleAds(src) {
   return [...byKey.values()];
 }
 
-const PULLERS = { callrail: pullCallRail, ga4: pullGA4, meta: pullMeta, pages: pullPages, google_ads: pullGoogleAds, search_console: pullSearchConsole };
+const PULLERS = { callrail: pullCallRail, ga4: pullGA4, meta: pullMeta, pages: pullPages, google_ads: pullGoogleAds, search_console: pullSearchConsole, youtube: pullYouTube };
 
 // Pull + ingest for a set of client_sources rows (optionally one source only).
 // Used by the main run and by the integrity sentinel's gap sweeps.
@@ -1157,6 +1218,22 @@ async function main() {
         const d = await r.json().catch(() => ({}));
         if (!r.ok) return [false, String(d.error?.message || `${r.status}`).slice(0, 160)];
         return [true, `${d.siteUrl} · ${d.permissionLevel}`];
+      }
+      if (src === "youtube") {
+        if (!GOOGLE_READY) return [false, "no GOOGLE_OAUTH_*"];
+        const tok = await getGoogleToken();
+        const h = { headers: { Authorization: `Bearer ${tok}` } };
+        const p = await fetchT(`https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&id=${encodeURIComponent(ext)}`, h, 15000);
+        const pd = await p.json().catch(() => ({}));
+        if (!p.ok) return [false, String(pd.error?.message || `${p.status}`).slice(0, 160)];
+        const ch = pd.items?.[0];
+        if (!ch) return [false, `channel ${ext} not found (is it the UC… channel id, not a handle?)`];
+        const q = new URLSearchParams({ ids: `channel==${ext}`, startDate: etDate(-9), endDate: etDate(-2), metrics: "views", dimensions: "day" });
+        const a = await fetchT(`https://youtubeanalytics.googleapis.com/v2/reports?${q}`, h, 15000);
+        const ad = await a.json().catch(() => ({}));
+        const subs = ch.statistics?.hiddenSubscriberCount ? "subscribers hidden" : `${ch.statistics?.subscriberCount ?? "?"} subscribers`;
+        if (a.ok) return [true, `${ch.snippet?.title} · Analytics access · ${subs}`];
+        return [true, `${ch.snippet?.title} · public snapshot only — no Analytics access (${String(ad.error?.message || a.status).slice(0, 80)})`];
       }
       if (src === "callrail") {
         if (!CALLRAIL_API_KEY) return [false, "no CALLRAIL_API_KEY"];

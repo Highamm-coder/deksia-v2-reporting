@@ -4,6 +4,7 @@ import Campaigns from "./Campaigns";
 import Derived from "./Derived";
 import Events from "./Events";
 import LeadSources from "./LeadSources";
+import TopQueries from "./TopQueries";
 import PlatformNav from "./PlatformNav";
 import MonthPicker from "./MonthPicker";
 import { statusSentence, toneColor } from "../../../lib/statusSentence";
@@ -11,8 +12,8 @@ import { statusSentence, toneColor } from "../../../lib/statusSentence";
 export const dynamic = "force-dynamic";
 const num = (v, d = 0) => (v == null ? "—" : Number(v).toLocaleString(undefined, { maximumFractionDigits: d }));
 
-const PLATFORM_ORDER = ["google_ads", "meta", "ga4", "search_console", "callrail", "pages", "manual", "email", "seo", "other"];
-const PLATFORM_LABEL = { google_ads: "Google Ads", meta: "Meta", ga4: "GA4", search_console: "Search Console", callrail: "CallRail", pages: "Facebook Pages", manual: "Tracked manually", email: "Email", seo: "SEO", other: "Other" };
+const PLATFORM_ORDER = ["google_ads", "meta", "ga4", "search_console", "youtube", "callrail", "pages", "manual", "email", "seo", "other"];
+const PLATFORM_LABEL = { google_ads: "Google Ads", meta: "Meta", ga4: "GA4", search_console: "Search Console", youtube: "YouTube", callrail: "CallRail", pages: "Facebook Pages", manual: "Tracked manually", email: "Email", seo: "SEO", other: "Other" };
 const PAID = new Set(["google_ads", "meta"]);
 
 const ym = (d) => String(d).slice(0, 7);
@@ -33,7 +34,7 @@ const pct = (cur, prev) => (prev != null && Number(prev) !== 0 ? (Number(cur) - 
 export default async function ClientDashboard({ params, searchParams }) {
   const slug = decodeURIComponent(params.slug);
   const supabase = getSupabaseServer();
-  const [{ data: monthly }, { data: campaignsAll }, { data: goals }, { data: provRows }, { data: derivedAll }, { data: health }, { data: eventsAll }, { data: objectivesAll }, { data: drillAll }, { data: leadSrcAll }, { data: statusRows }] = await Promise.all([
+  const [{ data: monthly }, { data: campaignsAll }, { data: goals }, { data: provRows }, { data: derivedAll }, { data: health }, { data: eventsAll }, { data: objectivesAll }, { data: drillAll }, { data: leadSrcAll }, { data: statusRows }, { data: queriesAll }, { data: scMappings }] = await Promise.all([ 
     supabase.from("v_client_monthly").select("*").eq("slug", slug),
     supabase.from("v_client_campaigns_all").select("*").eq("slug", slug),
     supabase.from("v_goal_scoreboard").select("*").eq("slug", slug).order("metric_name"),
@@ -45,6 +46,8 @@ export default async function ClientDashboard({ params, searchParams }) {
     supabase.from("v_client_campaign_drill").select("*").eq("slug", slug),
     supabase.from("v_client_lead_sources").select("*").eq("slug", slug),
     supabase.from("v_client_source_status").select("*").eq("slug", slug),
+    supabase.from("v_client_search_queries").select("*").eq("slug", slug),
+    supabase.from("client_sources").select("source, params, clients!inner(slug)").eq("clients.slug", slug).eq("source", "search_console").eq("active", true),
   ]);
   const objectives = objectivesAll || [];
   const goalById = {};
@@ -108,6 +111,8 @@ export default async function ClientDashboard({ params, searchParams }) {
   const drill = (drillAll || []).filter((r) => ym(r.month_start) === M);
   const events = (eventsAll || []).filter((r) => ym(r.month_start) === M);
   const leadSources = (leadSrcAll || []).filter((r) => ym(r.month_start) === M);
+  const searchQueries = (queriesAll || []).filter((r) => ym(r.month_start) === M);
+  const scFullDepth = (scMappings || []).some((s) => s.params?.metric_depth === "full");
   const derived = (derivedAll || [])
     .filter((r) => ym(r.month_start) === M)
     .map((r) => {
@@ -198,6 +203,7 @@ export default async function ClientDashboard({ params, searchParams }) {
                 {PAID.has(p) && <Campaigns campaigns={campaigns.filter((c) => c.source === p)} drill={drill.filter((d) => d.source === p)} />}
                 {p === "google_ads" && <Events events={events} />}
                 {p === "callrail" && <LeadSources rows={leadSources} />}
+                {p === "search_console" && <TopQueries rows={searchQueries} fullDepth={scFullDepth} month={M} />}
               </>
             ) : (
               <div className="card" style={{ maxWidth: "none", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
