@@ -57,6 +57,9 @@ const ONLY_SOURCE = (process.env.ONLY_SOURCE || "").trim();
 // Probe/pull one account only (external id, digits compared) — the Connections page's
 // per-account "Try again" dispatches PROBE_ONLY with this set.
 const ONLY_ACCOUNT = (process.env.ONLY_ACCOUNT || "").trim();
+// Was the window given explicitly (backfill / re-pull) or is this the daily "yesterday" run?
+// Late-publishing sources (Search Console ~3 days) shift the daily window back by their lag.
+const EXPLICIT_WINDOW = !!(process.env.RUN_START || process.env.RUN_DATE);
 const sameId = (a, b) => String(a).replace(/\D/g, "") === String(b).replace(/\D/g, "") && String(a) !== "";
 
 // Meta 'brk:' breakouts (placement / demo / device) are non-additive drill-down that
@@ -319,6 +322,54 @@ async function pullGA4(src) {
                   account_ext_id: src.external_id, entity: src.params?.brand || "",
                   qualifier: `${channel} | ${sourceMedium}` });
     });
+  }
+  return rows;
+}
+
+// ---- Google Search Console: clicks / impressions / CTR / position per property per day ----
+// Property = client_sources.external_id exactly as Search Console names it:
+// "sc-domain:example.com" or "https://www.example.com/". Search Console finalises data
+// ~3 days late, so the daily run pulls a 3-day window ending 3 days back (restatements
+// included); explicit backfill windows are used as given. CTR and position are rates:
+// stored as Search Console reports them per day, never summed (metric_definitions agg=avg).
+// Full depth adds the top queries ("term:") and device split ("dev:") — non-additive
+// breakouts on the 90-day horizon, like Google Ads' and Meta's.
+const GSC_LAG_DAYS = 3;
+async function gscQuery(siteUrl, body) {
+  const token = await getGoogleToken();
+  const res = await fetchT(`https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(siteUrl)}/searchAnalytics/query`, {
+    method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(body),
+  }, 60000);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(`search_console ${siteUrl}: ${res.status} ${data.error?.message || JSON.stringify(data).slice(0, 160)}`);
+  return data.rows || [];
+}
+async function pullSearchConsole(src) {
+  if (!GOOGLE_READY) return [];
+  const site = String(src.external_id).trim();
+  let s = START, e = END;
+  if (!EXPLICIT_WINDOW) { e = etDate(-1 - GSC_LAG_DAYS); s = etDate(-3 - GSC_LAG_DAYS); }
+  const rows = [];
+  const push = (metric, day, qualifier, value, unit) => {
+    if (value == null || Number.isNaN(Number(value))) return;
+    rows.push({ metric_name: metric, metric_date: day, account_ext_id: site, entity: src.params?.brand || "", qualifier, value: Number(value), unit });
+  };
+  const emit = (r, qualifier) => {
+    const day = r.keys[0];
+    push("clicks", day, qualifier, r.clicks, "int");
+    push("impressions", day, qualifier, r.impressions, "int");
+    push("ctr", day, qualifier, r.ctr * 100, "pct");
+    push("position", day, qualifier, r.position, "pos");
+  };
+  // 1. property totals per day (core)
+  for (const r of await gscQuery(site, { startDate: s, endDate: e, dimensions: ["date"], rowLimit: 1000 })) emit(r, "");
+  // 2. full depth: top queries and device split
+  const wantSplits = src.params?.metric_depth === "full" && (EXPLICIT_WINDOW ? END >= etDate(-BRK_RETENTION_DAYS) : true);
+  if (wantSplits) {
+    try {
+      for (const r of await gscQuery(site, { startDate: s, endDate: e, dimensions: ["date", "query"], rowLimit: 5000 })) emit({ ...r, keys: [r.keys[0]] }, `term:${r.keys[1]}`);
+      for (const r of await gscQuery(site, { startDate: s, endDate: e, dimensions: ["date", "device"], rowLimit: 1000 })) emit({ ...r, keys: [r.keys[0]] }, `dev:${String(r.keys[1]).toLowerCase()}`);
+    } catch (err) { console.warn(`  search_console ${src.slug} splits skipped: ${err.message.slice(0, 120)}`); }
   }
   return rows;
 }
@@ -851,7 +902,7 @@ async function pullGoogleAds(src) {
   return [...byKey.values()];
 }
 
-const PULLERS = { callrail: pullCallRail, ga4: pullGA4, meta: pullMeta, pages: pullPages, google_ads: pullGoogleAds };
+const PULLERS = { callrail: pullCallRail, ga4: pullGA4, meta: pullMeta, pages: pullPages, google_ads: pullGoogleAds, search_console: pullSearchConsole };
 
 // Pull + ingest for a set of client_sources rows (optionally one source only).
 // Used by the main run and by the integrity sentinel's gap sweeps.
@@ -1096,6 +1147,14 @@ async function main() {
         if (d.error) return [false, String(d.error.message).slice(0, 160)];
         const n = d.rows?.[0]?.metricValues?.[0]?.value;
         return [true, `property ${ext}${n != null ? ` · ${n} sessions/7d` : ""}`];
+      }
+      if (src === "search_console") {
+        if (!GOOGLE_READY) return [false, "no GOOGLE_OAUTH_*"];
+        const tok = await getGoogleToken();
+        const r = await fetchT(`https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(ext)}`, { headers: { Authorization: `Bearer ${tok}` } }, 15000);
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) return [false, String(d.error?.message || `${r.status}`).slice(0, 160)];
+        return [true, `${d.siteUrl} · ${d.permissionLevel}`];
       }
       if (src === "callrail") {
         if (!CALLRAIL_API_KEY) return [false, "no CALLRAIL_API_KEY"];
