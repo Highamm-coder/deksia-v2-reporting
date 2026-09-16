@@ -1,0 +1,2 @@
+-- 0052_pipeline_health_lag_aware.sql — applied live 2026-09-04. mv_pipeline_health: fresh = last day >=
+-- today - 2 - source_methods.lag_days (Search Console ~3, YouTube ~2 days behind).

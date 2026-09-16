@@ -1,0 +1,5 @@
+-- 0049_backfill_jobs.sql — applied live 2026-09-04. Platform-controlled backfills:
+-- backfill_jobs + backfill_chunks (calendar months), create_backfill_job / set_backfill_job_status
+-- (console, admin), claim_backfill_chunk / complete_backfill_chunk (runner, service_role),
+-- v_backfill_jobs. Claim enforces ≤3 google_ads chunks per 24 h and honours 429 deferrals.
+-- Runner: .github/workflows/backfill.yml every 2 h (BACKFILL_MODE=1, MAX_CHUNKS=3).

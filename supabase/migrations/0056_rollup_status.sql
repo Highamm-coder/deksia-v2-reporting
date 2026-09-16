@@ -1,0 +1,2 @@
+-- 0056_rollup_status.sql — applied live 2026-09-15. rollup_status(refreshed_at, duration_ms) written by
+-- refresh_rollups(); shown in the Data health header so a freshness fill lagging ≤1h after a fix is explained.
