@@ -11,8 +11,8 @@ import { statusSentence, toneColor } from "../../../lib/statusSentence";
 export const dynamic = "force-dynamic";
 const num = (v, d = 0) => (v == null ? "—" : Number(v).toLocaleString(undefined, { maximumFractionDigits: d }));
 
-const PLATFORM_ORDER = ["google_ads", "meta", "ga4", "callrail", "pages", "manual", "email", "seo", "other"];
-const PLATFORM_LABEL = { google_ads: "Google Ads", meta: "Meta", ga4: "GA4", callrail: "CallRail", pages: "Facebook Pages", manual: "Tracked manually", email: "Email", seo: "SEO", other: "Other" };
+const PLATFORM_ORDER = ["google_ads", "meta", "ga4", "search_console", "callrail", "pages", "manual", "email", "seo", "other"];
+const PLATFORM_LABEL = { google_ads: "Google Ads", meta: "Meta", ga4: "GA4", search_console: "Search Console", callrail: "CallRail", pages: "Facebook Pages", manual: "Tracked manually", email: "Email", seo: "SEO", other: "Other" };
 const PAID = new Set(["google_ads", "meta"]);
 
 const ym = (d) => String(d).slice(0, 7);

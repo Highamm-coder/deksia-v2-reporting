@@ -1,3 +1,0 @@
--- 0053_placeholder_sources.sql — applied live 2026-09-04. Roadmap sources registered inactive with their
--- access model documented: instagram, gbp, linkedin, tiktok_ads, pinterest_ads, nextdoor_ads. Provider check
--- extended to linkedin/tiktok/pinterest/nextdoor.

@@ -1,4 +1,0 @@
--- 0047_provenance_rollup_no_sort.sql — applied live 2026-09-04 via the Supabase MCP; this file is the marker.
--- Full DDL is in the applied migration of the same name (list_migrations / dashboard).
--- mv_client_provenance rebuilt from two hash aggregations (no array_agg DISTINCT sort),
--- because the sort ran the free-tier disk out of temp space.

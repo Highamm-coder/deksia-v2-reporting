@@ -1,2 +1,0 @@
--- 0059_discovery_ignore.sql — applied live 2026-09-16. connector_discovery.ignored_at/ignored_by +
--- set_discovery_ignored(keys, bool) (admin RPC) so the visible-not-mapped list only shows real candidates.

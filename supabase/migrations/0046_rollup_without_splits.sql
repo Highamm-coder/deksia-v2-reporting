@@ -1,4 +1,0 @@
--- 0046_rollup_without_splits.sql — applied live 2026-09-04 via the Supabase MCP; this file is the marker.
--- Full DDL is in the applied migration of the same name (list_migrations / dashboard).
--- mv_metrics_monthly_dim excludes the split grains (57 MB → 207 MB → 51 MB);
--- v_client_breakouts reads the live metrics_daily view instead. 11 dependent views recreated.

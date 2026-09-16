@@ -2,7 +2,7 @@
 
 // Sticky in-page jump nav: one link per platform section present on the page, plus
 // Goals. Anchors scroll to <section id=...> below. Sits under the global header.
-const LABEL = { google_ads: "Google Ads", meta: "Meta", ga4: "GA4", callrail: "CallRail", pages: "Pages", manual: "Manual", email: "Email", seo: "SEO", other: "Other" };
+const LABEL = { google_ads: "Google Ads", meta: "Meta", ga4: "GA4", search_console: "Search Console", callrail: "CallRail", pages: "Pages", manual: "Manual", email: "Email", seo: "SEO", other: "Other" };
 
 export default function PlatformNav({ platforms }) {
   const items = [...(platforms || []), "goals"];

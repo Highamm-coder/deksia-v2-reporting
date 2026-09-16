@@ -1,3 +1,0 @@
--- 0048_restore_view_security.sql — applied live 2026-09-04. Views back to security_invoker
--- (recreation had reset it), private rollups readable by authenticated, queue RPCs
--- service-role only, search_path pinned on is_breakout/series_grain.
