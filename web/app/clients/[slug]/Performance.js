@@ -13,9 +13,12 @@ const LABEL = {
   conversion_action: "Conversion action", sessions: "Sessions", engaged_sessions: "Engaged sessions",
   key_events: "Key events", users: "Users", new_users: "New users", engagement: "Engagement",
   followers: "Followers", video_views: "Video views", position: "Avg. position",
+  watch_minutes: "Watch time (min)", avg_view_duration_sec: "Avg. view duration", subscribers_gained: "Subscribers gained",
+  subscribers_lost: "Subscribers lost", likes: "Likes", comments: "Comments", shares: "Shares",
+  subscribers_total: "Subscribers (lifetime, snapshot)", views_total: "Views (lifetime, snapshot)", videos_total: "Videos (snapshot)",
 };
-const SRC_LABEL = { google_ads: "Google Ads", meta: "Meta", ga4: "GA4", search_console: "Search Console", callrail: "CallRail", pages: "Facebook Pages", manual: "Tracked manually", email: "Email", seo: "SEO", other: "Other" };
-const SRC_ORDER = ["google_ads", "meta", "ga4", "search_console", "callrail", "pages", "manual", "email", "seo", "other"];
+const SRC_LABEL = { google_ads: "Google Ads", meta: "Meta", ga4: "GA4", search_console: "Search Console", youtube: "YouTube", callrail: "CallRail", pages: "Facebook Pages", manual: "Tracked manually", email: "Email", seo: "SEO", other: "Other" };
+const SRC_ORDER = ["google_ads", "meta", "ga4", "search_console", "youtube", "callrail", "pages", "manual", "email", "seo", "other"];
 const LS_KEY = "deksia_pinned_metrics";
 const label = (m) => LABEL[m] || m.replace(/_/g, " ");
 const prio = (m) => { const i = PRIORITY.indexOf(m); return i === -1 ? 99 : i; };
