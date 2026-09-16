@@ -137,3 +137,52 @@ export async function probeMapping(formData) {
   try { const b = await res.json(); if (b?.message) why += ` ${b.message}`; } catch { /* non-JSON */ }
   back(`?err=${encodeURIComponent(("GitHub: " + why).slice(0, 120))}`);
 }
+
+// ---- bulk actions from the grid (ids arrive as repeated "ids" fields) --------------------
+const idsOf = (formData) => formData.getAll("ids").map(String).filter(Boolean);
+
+export async function ignoreDiscovered(formData) {
+  const supabase = getSupabaseServer();
+  const keys = idsOf(formData);
+  if (!keys.length) back("?err=nothing%20selected");
+  const { error } = await supabase.rpc("set_discovery_ignored", { p_keys: keys, p_ignored: String(formData.get("undo") || "") !== "1" });
+  back(error ? `?err=${encodeURIComponent(error.message.slice(0, 120))}` : `?updated=${keys.length}`);
+}
+
+// Map several discovered accounts to one client at once; one scoped probe for the client.
+export async function mapDiscoveredBulk(formData) {
+  const supabase = getSupabaseServer();
+  const { data: isAdmin } = await supabase.rpc("is_admin");
+  if (!isAdmin) back("?err=forbidden");
+  const client_id = String(formData.get("client_id") || "");
+  const keys = idsOf(formData);
+  if (!client_id || !keys.length) back("?err=pick%20a%20client%20and%20at%20least%20one%20account");
+  const { data: client } = await supabase.from("clients").select("slug").eq("id", client_id).maybeSingle();
+  if (!client) back("?err=unknown%20client");
+  const { data: disc } = await supabase.from("connector_discovery").select("source, external_id, name, extra");
+  const rows = keys.map((k) => (disc || []).find((d) => `${d.source}|${d.external_id}` === k)).filter(Boolean).map((d) => ({
+    client_id, source: d.source, external_id: d.external_id, active: true,
+    params: { confirmed: true, mapped_from: "connections/bulk", ...(d.name ? { label: d.name } : {}), ...(d.extra?.account_id ? { account_id: d.extra.account_id } : {}) },
+  }));
+  if (!rows.length) back("?err=nothing%20to%20map");
+  const { error } = await supabase.from("client_sources").insert(rows);
+  if (error) back(`?err=${encodeURIComponent(error.message.slice(0, 120))}`);
+  const probeErr = await dispatchProbe(client.slug, "", "");
+  back(`?mapped=${rows.length}%20account(s)&client=${encodeURIComponent(client.slug)}${probeErr ? `&probe_err=${encodeURIComponent(probeErr)}` : "&probing=1"}`);
+}
+
+export async function setMappingsActive(formData) {
+  const supabase = getSupabaseServer();
+  const { data: isAdmin } = await supabase.rpc("is_admin");
+  if (!isAdmin) back("?err=forbidden");
+  const ids = idsOf(formData);
+  const active = String(formData.get("active")) === "true";
+  if (!ids.length) back("?err=nothing%20selected");
+  await supabase.from("client_sources").update({ active, updated_at: new Date().toISOString() }).in("id", ids);
+  back(`?updated=${ids.length}`);
+}
+
+export async function unignoreDiscovered(formData) {
+  formData.append("undo", "1");
+  return ignoreDiscovered(formData);
+}

@@ -119,3 +119,30 @@ main section > h2:first-child { margin-top:2px; }
 .side-search .hit:hover, .side-search .hit.sel { background:var(--panel2); text-decoration:none; }
 .side-search .sub { color:var(--muted); font-size:10.5px; text-transform:uppercase;
   letter-spacing:.06em; margin:10px 2px 4px; }
+
+/* ---- DataGrid ---- */
+.grid { margin: 14px 0 22px; }
+.grid-head { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:8px; }
+.grid-toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
+.grid-search { width:220px; margin:0; padding:6px 10px; font-size:13px; }
+.grid-select { width:auto; margin:0; padding:6px 8px; font-size:13px; }
+.grid-btn { margin:0; padding:6px 10px; font-size:12.5px; font-weight:600; background:var(--panel2); color:var(--txt);
+  border:1px solid var(--line); border-radius:8px; cursor:pointer; line-height:1.2; }
+.grid-btn:disabled { opacity:.4; cursor:default; }
+.grid-btn.solid { background:var(--txt); color:#fff; border-color:var(--txt); }
+.grid-btn.danger { color:var(--off); }
+.grid-btn.kebab { padding:2px 8px; font-size:16px; background:transparent; border-color:transparent; }
+.grid-btn.kebab:hover { background:var(--panel2); }
+.grid-cols { position:relative; }
+.grid-cols summary { list-style:none; display:inline-block; }
+.grid-cols summary::-webkit-details-marker { display:none; }
+.grid-pop { position:absolute; z-index:20; top:calc(100% + 4px); left:0; background:var(--panel); border:1px solid var(--line);
+  border-radius:10px; padding:8px; box-shadow:0 8px 24px rgba(17,24,39,.08); display:flex; flex-direction:column; gap:6px; min-width:160px; }
+.grid-item { display:block; width:100%; text-align:left; margin:0; padding:7px 10px; font-size:13px; background:transparent; color:var(--txt);
+  border:0; border-radius:6px; cursor:pointer; text-decoration:none; }
+.grid-item:hover { background:var(--panel2); }
+.grid-item.danger { color:var(--off); }
+.grid-bulk { display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:8px 12px; margin-bottom:8px;
+  background:var(--panel2); border:1px solid var(--line); border-radius:10px; }
+.grid tr.sel td { background:rgba(17,24,39,.035); }
+.grid table.dense th, .grid table.dense td { padding:7px 10px; }
