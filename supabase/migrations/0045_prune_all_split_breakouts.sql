@@ -1,4 +1,0 @@
--- 0045_prune_all_split_breakouts.sql — applied live 2026-09-04 via the Supabase MCP; this file is the marker.
--- Full DDL is in the applied migration of the same name (list_migrations / dashboard).
--- prune_metrics(): the 90-day breakout horizon now covers term/kw/dev/net/age/gender
--- (Google's non-additive splits) as well as Meta's brk:. 'ad:' and 'ag:' kept long-term.

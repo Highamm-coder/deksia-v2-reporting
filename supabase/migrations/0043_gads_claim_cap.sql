@@ -1,5 +1,0 @@
--- 0043_gads_claim_cap.sql — applied live 2026-09-04. gads_claim() caps each ask at 3
--- queued days regardless of what the script requests. Reason: ~10 s per account-day and a
--- 30-minute Ads Scripts cap meant the first 5 MCC accounts consumed every hourly run and
--- 19 accounts were never reached. Server-side so the pasted script stays as-is.
--- 2 recent + 3 queued days ≈ 50 s/account → all 24 accounts every hour, ~72 queue days/h.

@@ -1,2 +1,0 @@
--- 0058_status_probes_match_mappings.sql — applied live 2026-09-15. v_client_source_status counts only probes
--- matching a current active mapping; orphan probe rows (account no longer mapped) purged.

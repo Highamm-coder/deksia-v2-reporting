@@ -1,3 +1,0 @@
--- 0057_member_status_and_formula_gate.sql — applied live 2026-09-15. derived_metrics / metric_definitions writes
--- are admin-only (is_admin) at the database; v_client_source_status = per client×source inputs for the member-facing
--- status sentence (probe reachable/detail, sync_status, deferred_until, credential_status).

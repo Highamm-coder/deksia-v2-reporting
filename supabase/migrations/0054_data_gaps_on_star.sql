@@ -1,2 +1,0 @@
--- 0054_data_gaps_on_star.sql — applied live 2026-09-15. data_gaps() reads the star (registry sources,
--- per-series PK probes) instead of scanning the metrics_daily view twice; respects source lag_days.
