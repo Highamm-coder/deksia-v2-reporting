@@ -348,7 +348,9 @@ async function pullSearchConsole(src) {
   if (!GOOGLE_READY) return [];
   const site = String(src.external_id).trim();
   let s = START, e = END;
-  if (!EXPLICIT_WINDOW) { e = etDate(-1 - GSC_LAG_DAYS); s = etDate(-3 - GSC_LAG_DAYS); }
+  // Daily run: trailing 3-day window behind the lag. An explicit window (manual run) or a
+  // backfill chunk (START/END set per chunk by runBackfillChunks) is pulled exactly as given.
+  if (!EXPLICIT_WINDOW && !BACKFILL_MODE) { e = etDate(-1 - GSC_LAG_DAYS); s = etDate(-3 - GSC_LAG_DAYS); }
   const rows = [];
   const push = (metric, day, qualifier, value, unit) => {
     if (value == null || Number.isNaN(Number(value))) return;
@@ -364,7 +366,7 @@ async function pullSearchConsole(src) {
   // 1. property totals per day (core)
   for (const r of await gscQuery(site, { startDate: s, endDate: e, dimensions: ["date"], rowLimit: 1000 })) emit(r, "");
   // 2. full depth: top queries and device split
-  const wantSplits = src.params?.metric_depth === "full" && (EXPLICIT_WINDOW ? END >= etDate(-BRK_RETENTION_DAYS) : true);
+  const wantSplits = src.params?.metric_depth === "full" && ((EXPLICIT_WINDOW || BACKFILL_MODE) ? e >= etDate(-BRK_RETENTION_DAYS) : true);
   if (wantSplits) {
     try {
       for (const r of await gscQuery(site, { startDate: s, endDate: e, dimensions: ["date", "query"], rowLimit: 5000 })) emit({ ...r, keys: [r.keys[0]] }, `term:${r.keys[1]}`);
