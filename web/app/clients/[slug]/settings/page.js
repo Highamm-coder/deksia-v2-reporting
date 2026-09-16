@@ -29,9 +29,11 @@ export default async function SettingsTab({ params, searchParams }) {
 
   // Meta depth: how many distinct metric names this client actually has stored, so the
   // choice is made against the real number rather than a promise about it.
-  const metaSources = sources.filter((s) => s.source === "meta" || s.source === "google_ads");
+  const DEPTH_SOURCES = ["meta", "google_ads", "search_console"];
+  const DEPTH_LABEL = { meta: "Meta", google_ads: "Google Ads", search_console: "Search Console" };
+  const metaSources = sources.filter((s) => DEPTH_SOURCES.includes(s.source));
   const { data: nameRows } = metaSources.length
-    ? await supabase.from("v_client_metric_names").select("source, metric_names").eq("client_id", client.id).in("source", ["meta", "google_ads"])
+    ? await supabase.from("v_client_metric_names").select("source, metric_names").eq("client_id", client.id).in("source", DEPTH_SOURCES)
     : { data: [] };
   const nameCount = Object.fromEntries((nameRows || []).map((r) => [r.source, r.metric_names]));
   const metaNameCount = nameCount.meta ?? 0;
@@ -97,14 +99,16 @@ export default async function SettingsTab({ params, searchParams }) {
 
       {metaSources.length > 0 && (
         <>
-          <h2 id="metric-depth">Metric depth — Meta &amp; Google Ads</h2>
+          <h2 id="metric-depth">Metric depth — Meta, Google Ads &amp; Search Console</h2>
           <p className="muted" style={{ margin: "0 0 8px", fontSize: 13 }}>
             <strong>Standard</strong> is core data. Meta: the conversions an account is judged on — leads,
             lead-form and pixel leads, landing page views, purchase funnel, calls, messages, engagement —
             without Meta&apos;s ~90 aliased action types. Google Ads: campaign, ad group, ad and PMax asset-group
             counts, campaign rates and conversion actions — without search-term, keyword, device, network, age and
             gender splits (roughly ten times the volume of everything else). <strong>Full</strong> stores all of it,
-            with the splits kept 90 days. Nothing is computed or combined either way; this only decides what gets stored.
+            with the splits kept 90 days. Search Console: <strong>Standard</strong> is the property totals (clicks, impressions,
+            CTR, position per day); <strong>Full</strong> adds the top 50 queries per day and the device split, kept 90 days, which
+            feeds the Top queries table on the dashboard. Nothing is computed or combined either way; this only decides what gets stored.
           </p>
           <p className="muted" style={{ margin: "0 0 8px", fontSize: 13 }}>
             Distinct metric names stored in the last 90 days: <strong>Meta {metaNameCount}</strong>{nameCount.google_ads != null && <> · <strong>Google Ads {nameCount.google_ads}</strong></>}.
@@ -119,7 +123,7 @@ export default async function SettingsTab({ params, searchParams }) {
                 const d = s.params?.metric_depth === "full" ? "full" : "standard";
                 return (
                   <tr key={s.id}>
-                    <td>{s.source === "meta" ? "Meta" : "Google Ads"}</td>
+                    <td>{DEPTH_LABEL[s.source] || s.source}</td>
                     <td className="muted">{s.params?.label ? `${s.params.label} · ` : ""}{s.external_id}</td>
                     <td>{d === "full" ? <span className="pill pending">full</span> : <span className="pill on_track">standard</span>}</td>
                     <td>

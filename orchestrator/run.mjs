@@ -369,7 +369,9 @@ async function pullSearchConsole(src) {
   const wantSplits = src.params?.metric_depth === "full" && ((EXPLICIT_WINDOW || BACKFILL_MODE) ? e >= etDate(-BRK_RETENTION_DAYS) : true);
   if (wantSplits) {
     try {
-      for (const r of await gscQuery(site, { startDate: s, endDate: e, dimensions: ["date", "query"], rowLimit: 5000 })) emit({ ...r, keys: [r.keys[0]] }, `term:${r.keys[1]}`);
+      // Top queries per day, by clicks (the API's default order). Capped at 50/day/property: the
+      // free tier cannot hold 5000/day × 4 metrics × 22 properties × 90 days (~40M rows).
+      for (const r of await gscQuery(site, { startDate: s, endDate: e, dimensions: ["date", "query"], rowLimit: 50 })) emit({ ...r, keys: [r.keys[0]] }, `term:${r.keys[1]}`);
       for (const r of await gscQuery(site, { startDate: s, endDate: e, dimensions: ["date", "device"], rowLimit: 1000 })) emit({ ...r, keys: [r.keys[0]] }, `dev:${String(r.keys[1]).toLowerCase()}`);
     } catch (err) { console.warn(`  search_console ${src.slug} splits skipped: ${err.message.slice(0, 120)}`); }
   }
