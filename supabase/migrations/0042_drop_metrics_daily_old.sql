@@ -1,0 +1,5 @@
+-- 0042_drop_metrics_daily_old.sql — applied live 2026-09-04 (Matt: "drop it").
+-- drop table public.metrics_daily_old;
+-- The pre-star table, retained through cutover verification (per-row fingerprint,
+-- rebuilt-view invariants, and a real Sep-3 run through ingest-metrics v7).
+-- Database: 1,113 MB → 253 MB. All data is re-pullable from the vendor APIs.

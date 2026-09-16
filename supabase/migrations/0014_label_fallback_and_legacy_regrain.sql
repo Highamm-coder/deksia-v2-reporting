@@ -1,0 +1,14 @@
+-- 0014: account-label fallback + legacy google_ads re-grain (applied live 2026-07-10).
+-- (a) Some client_sources store the account name under params->>'account' (registry-era
+--     key) instead of 'label' — label resolution now tries label → account → id in
+--     v_client_provenance, v_client_report_detail, v_client_campaigns.
+-- (b) Data repair (one-time, done via SQL alongside this migration): v1-script
+--     google_ads rows written with account_ext_id='' were stamped with the client's
+--     single known CID (truthful — one script-capable account) and annotated in
+--     meta.attribution; Moda's were unattributable (v1 multi-account overwrite bug)
+--     and were backed up to metrics_daily_backup_20260708 then deleted, per the
+--     provenance principle: no number without a certain origin.
+-- View definitions live in the database; this file records the change for rebuilds —
+-- see 0013 for the full view bodies (only the account_label coalesce chains changed:
+--   coalesce(params->>'label', params->>'account', nullif(account_ext_id,''), ...) ).
+select 1; -- marker migration; live views already updated

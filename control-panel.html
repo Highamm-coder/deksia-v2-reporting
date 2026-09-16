@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>V2 Reporting — Connector Health</title>
+<style>
+  :root{
+    --bg:#0f1420; --panel:#171e2c; --ink:#eaf0fa; --muted:#8b9abc; --line:#283449;
+    --green:#2bd47b; --greenbg:rgba(43,212,123,.12);
+    --amber:#f4b740; --amberbg:rgba(244,183,64,.12);
+    --blue:#54a3ff; --bluebg:rgba(84,163,255,.12);
+    --grey:#6b7894; --greybg:rgba(107,120,148,.14);
+    --red:#ff6b5e; --redbg:rgba(255,107,94,.12);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;line-height:1.45}
+  .wrap{max-width:760px;margin:0 auto;padding:26px 18px 56px}
+  .eyebrow{font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);font-weight:700}
+  h1{font-size:22px;margin:5px 0 0;font-weight:800;letter-spacing:-.01em}
+  .checked{font-size:12.5px;color:var(--muted);margin-top:4px}
+  /* summary banner */
+  .summary{margin:20px 0 8px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;
+    display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  .summary .big{font-size:17px;font-weight:800}
+  .summary .big .ok{color:var(--green)}
+  .counts{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto;font-size:12.5px;color:var(--muted)}
+  .counts b{color:var(--ink)}
+  .meter{height:8px;border-radius:99px;background:var(--greybg);overflow:hidden;display:flex;width:100%;margin-top:4px}
+  .meter i{display:block;height:100%}
+  /* rows */
+  .list{margin-top:14px;display:flex;flex-direction:column;gap:10px}
+  .row{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px;
+    display:flex;align-items:center;gap:14px}
+  .led{width:13px;height:13px;border-radius:50%;flex:none;position:relative}
+  .led::after{content:"";position:absolute;inset:-5px;border-radius:50%;opacity:.25}
+  .led.g{background:var(--green)} .led.g::after{background:var(--green)}
+  .led.a{background:var(--amber)} .led.a::after{background:var(--amber)}
+  .led.b{background:var(--blue)} .led.b::after{background:var(--blue)}
+  .led.x{background:var(--grey)}
+  .led.r{background:var(--red)} .led.r::after{background:var(--red)}
+  .pulse::after{animation:pulse 1.8s ease-out infinite}
+  @keyframes pulse{0%{transform:scale(1);opacity:.5}70%{transform:scale(2.4);opacity:0}100%{opacity:0}}
+  .body{flex:1;min-width:0}
+  .name{font-size:15.5px;font-weight:700}
+  .ev{font-size:12.5px;color:var(--muted);margin-top:2px}
+  .verdict{font-size:11.5px;font-weight:800;padding:5px 11px;border-radius:999px;white-space:nowrap;flex:none}
+  .v-flow{background:var(--greenbg);color:var(--green)}
+  .v-deg{background:var(--amberbg);color:var(--amber)}
+  .v-idle{background:var(--bluebg);color:var(--blue)}
+  .v-no{background:var(--greybg);color:var(--muted)}
+  .v-off{background:var(--redbg);color:var(--red)}
+  .foot{margin-top:22px;font-size:11.5px;color:var(--grey);text-align:center;line-height:1.6}
+  .foot a{color:var(--blue);text-decoration:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow">Deksia · V2 Reporting</div>
+  <h1>Connector Health</h1>
+  <div class="checked">Snapshot · 2026-06-18 · is each source connected, and is data flowing?</div>
+
+  <div class="summary">
+    <div>
+      <div class="big"><span class="ok">3</span> of 7 flowing</div>
+      <div class="checked">1 degraded · 1 idle · 2 not flowing</div>
+    </div>
+    <div class="counts" style="flex-basis:100%">
+      <div class="meter">
+        <i style="width:43%;background:var(--green)"></i>
+        <i style="width:14%;background:var(--amber)"></i>
+        <i style="width:14%;background:var(--blue)"></i>
+        <i style="width:29%;background:var(--grey)"></i>
+      </div>
+    </div>
+  </div>
+
+  <div class="list">
+
+    <div class="row">
+      <span class="led g pulse"></span>
+      <div class="body"><div class="name">Google Sheets I/O</div>
+        <div class="ev">Reading goal tabs &amp; writing mirror tabs — last write succeeded.</div></div>
+      <span class="verdict v-flow">Flowing</span>
+    </div>
+
+    <div class="row">
+      <span class="led g pulse"></span>
+      <div class="body"><div class="name">Meta Ads</div>
+        <div class="ev">Insights returning (impressions, CTR, leads, spend) — last pull 5 clients.</div></div>
+      <span class="verdict v-flow">Flowing</span>
+    </div>
+
+    <div class="row">
+      <span class="led g pulse"></span>
+      <div class="body"><div class="name">CallRail</div>
+        <div class="ev">Self-hosted server up on :3000 — call/form summaries returning.</div></div>
+      <span class="verdict v-flow">Flowing</span>
+    </div>
+
+    <div class="row">
+      <span class="led a pulse"></span>
+      <div class="body"><div class="name">Facebook Pages</div>
+        <div class="ev">Connected, but insights return for only 3 of 15 mapped pages — rest need a Page role.</div></div>
+      <span class="verdict v-deg">Degraded</span>
+    </div>
+
+    <div class="row">
+      <span class="led b"></span>
+      <div class="body"><div class="name">Instagram</div>
+        <div class="ev">Connected (@deksia), but no pulls yet — accounts not mapped to clients.</div></div>
+      <span class="verdict v-idle">Idle</span>
+    </div>
+
+    <div class="row">
+      <span class="led x"></span>
+      <div class="body"><div class="name">GA4</div>
+        <div class="ev">Connected, but no property IDs configured — nothing to pull yet.</div></div>
+      <span class="verdict v-no">Not flowing</span>
+    </div>
+
+    <div class="row">
+      <span class="led x"></span>
+      <div class="body"><div class="name">Google Ads</div>
+        <div class="ev">Not connected (planned). MQL counts recovered via CallRail attribution.</div></div>
+      <span class="verdict v-off">Offline</span>
+    </div>
+
+  </div>
+
+  <div class="foot">
+    Static snapshot — a live version would re-check each source on load.<br>
+    <a href="https://docs.google.com/spreadsheets/d/1TYLr0slqT4UXAWwKJLgsabqETfp8TpgO0426_awR5JA/edit">↗ Reporting workbook</a>
+  </div>
+</div>
+</body>
+</html>

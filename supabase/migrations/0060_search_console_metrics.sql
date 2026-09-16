@@ -1,0 +1,2 @@
+-- 0060_search_console_metrics.sql — applied live 2026-09-16. metric_definitions for search_console (clicks,
+-- impressions sum; ctr, position avg — position direction=decrease); ensure_metric_defs treats 'position'/'pos' as a rate.

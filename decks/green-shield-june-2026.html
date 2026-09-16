@@ -1,0 +1,819 @@
+<!--
+  ============================================================
+  SLATE TEMPLATE — 45 slides
+  ============================================================
+  A complete, working Slate deck covering 30+ slide types: data
+  visualisations, image layouts, people/proof grids, structure,
+  frameworks, and closes.
+
+  Give this template to an LLM with an instruction like:
+
+      "Adapt this Slate template to create a deck about [TOPIC].
+       Keep all CSS, class names, and structure exactly as-is.
+       Only replace the placeholder copy inside each
+       <section class='slide'>. Delete slides you don't need.
+       Renumber the chrome counters accordingly."
+
+  Preserve:  <style> blocks, class names, chrome, meta rows
+  Replace:   placeholder text, the "DEKSIA" wordmark, :root
+             --accent, the <title> tag
+  ============================================================
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Green Shield Deck Builders — Monthly Performance Report — June 2026</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    /* --- CHANGE THE ACCENT HEX TO RE-COLOUR THE WHOLE DECK --- */
+    --accent:#6D52E0;
+    --accent-soft:#BDB1F1;
+    --slide-bg-dark:#261D4E;
+    /* -------------------------------------------------------- */
+
+    --page-bg:#EEECE6;
+    --slide-bg:#FFFFFF;
+    --ink:#121332;
+    --ink-muted:#585B7A;
+    --ink-faint:#9A9CB3;
+    --rule:rgba(18,19,50,0.09);
+    /* --- consolidated type scale (deck-wide) --- */
+    --fs-feature:2.8cqw;   /* statement, quote, inline proof stats */
+    --fs-subhead:2.1cqw;   /* prose subheads, agenda titles, subtitle */
+    --fs-body:1.7cqw;     /* the one body size — all paragraphs */
+    --fs-label:1.28cqw;     /* eyebrows, section labels, small caps */
+    --rule-dark:rgba(255,255,255,0.14);
+    --good:#1F5F3A;
+    --bad:#9B3A3A;
+  }
+
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}
+  body{
+    font-family:'Inter',system-ui,-apple-system,sans-serif;
+    background:var(--page-bg);color:var(--ink);
+    padding:56px 24px 140px;min-height:100vh;
+    font-feature-settings:"ss01","cv11";
+  }
+  .gallery{max-width:1400px;margin:0 auto;display:flex;flex-direction:column;gap:32px;}
+
+  /* --- slide frame --- */
+  .slide{
+    position:relative;width:100%;aspect-ratio:16/9;
+    background:var(--slide-bg);color:var(--ink);
+    overflow:hidden;container-type:inline-size;
+    box-shadow:0 1px 2px rgba(0,0,0,0.04),0 24px 60px -20px rgba(18,19,50,0.18);
+    border-radius:4px;
+  }
+  .slide.dark{background:var(--slide-bg-dark);color:#F2F1EC;}
+  .inner{position:absolute;inset:0;padding:6cqw 7cqw;display:flex;flex-direction:column;z-index:2;}
+
+  /* --- type primitives --- */
+  .eyebrow{font-weight:500;font-size:var(--fs-label);letter-spacing:.22em;text-transform:uppercase;color:var(--accent);}
+  .slide.dark .eyebrow{color:var(--accent-soft);}
+  .sec{font-weight:500;font-size:var(--fs-label);letter-spacing:.22em;text-transform:uppercase;color:var(--ink-faint);}
+  .slide.dark .sec{color:rgba(255,255,255,0.55);}
+  .h1{font-weight:600;font-size:5.4cqw;line-height:1.02;letter-spacing:-.028em;}
+  .h2{font-weight:600;font-size:3.4cqw;line-height:1.06;letter-spacing:-.022em;}
+  .body{font-weight:400;font-size:var(--fs-body);line-height:1.6;color:var(--ink-muted);}
+  .slide.dark .body{color:rgba(242,241,236,0.72);}
+  em{font-style:normal;font-weight:500;color:var(--accent);}
+  .slide.dark em{color:var(--accent-soft);}
+  .mono{font-variant-numeric:tabular-nums;}
+
+  /* --- meta row (every non-title slide) --- */
+  .meta-row{display:flex;align-items:baseline;justify-content:space-between;
+    padding-bottom:1.8cqw;border-bottom:1px solid var(--rule);margin-bottom:3.2cqw;}
+  .slide.dark .meta-row{border-color:var(--rule-dark);}
+
+  /* --- chrome --- */
+  .chrome{position:absolute;left:7cqw;right:7cqw;bottom:3.2cqw;
+    display:flex;align-items:center;justify-content:space-between;
+    font-size:.78cqw;letter-spacing:.22em;text-transform:uppercase;color:var(--ink-faint);z-index:3;}
+  .slide.dark .chrome{color:rgba(255,255,255,0.42);}
+  .chrome .mark{display:flex;align-items:center;gap:.6cqw;}
+  .chrome .dot{width:.55cqw;height:.55cqw;border-radius:50%;background:var(--accent);}
+  .slide.dark .chrome .dot{background:var(--accent-soft);}
+
+  /* --- CSS gradient backgrounds --- */
+  .slide.has-bg{color:#FFFFFF;}
+  .slide.has-bg .bg{
+    position:absolute;inset:0;z-index:0;
+    background:
+      radial-gradient(60% 80% at 20% 25%, rgba(168,170,235,0.35) 0%, rgba(61,63,183,0) 55%),
+      radial-gradient(70% 90% at 85% 90%, rgba(10,12,40,0.75) 0%, rgba(61,63,183,0) 60%),
+      radial-gradient(120% 90% at 50% 50%, #4A4CCB 0%, var(--accent) 40%, #1F2182 75%, #0B0C2B 100%);
+  }
+  .slide.has-bg .bg::after{
+    content:'';position:absolute;inset:0;
+    background:
+      linear-gradient(180deg,rgba(11,12,43,0.25) 0%,rgba(11,12,43,0) 30%,rgba(11,12,43,0.55) 100%),
+      linear-gradient(90deg,rgba(11,12,43,0.50) 0%,rgba(11,12,43,0) 55%);
+  }
+
+  /* --- UTILITY: image placeholder (used across many slide types) --- */
+  .img-ph{
+    position:relative;
+    background:
+      linear-gradient(135deg,rgba(18,19,50,0.04),rgba(18,19,50,0.08)),
+      repeating-linear-gradient(45deg,transparent 0,transparent 10px,rgba(18,19,50,0.02) 10px,rgba(18,19,50,0.02) 20px);
+    border:1px dashed var(--rule);border-radius:2px;
+    display:flex;align-items:center;justify-content:center;
+    overflow:hidden;color:var(--ink-faint);
+    font-size:.75cqw;letter-spacing:.22em;text-transform:uppercase;font-weight:500;
+    text-align:center;padding:.5cqw;
+  }
+  .slide.dark .img-ph{
+    background:
+      linear-gradient(135deg,rgba(255,255,255,0.04),rgba(255,255,255,0.08)),
+      repeating-linear-gradient(45deg,transparent 0,transparent 10px,rgba(255,255,255,0.02) 10px,rgba(255,255,255,0.02) 20px);
+    border-color:var(--rule-dark);color:rgba(255,255,255,0.45);
+  }
+
+  /* --- slide 1: title --- */
+  .slide.title .inner{justify-content:space-between;}
+  .slide.title .eyebrow{color:rgba(255,255,255,0.85);}
+  .slide.title .h1{font-weight:500;letter-spacing:-.03em;max-width:80%;}
+  .slide.title .h1 em{color:var(--accent-soft);}
+  .slide.title .sub{margin-top:2.2cqw;font-size:var(--fs-subhead);color:rgba(255,255,255,0.78);font-weight:300;max-width:58%;line-height:1.5;}
+  .slide.title .meta{margin-top:2.4cqw;display:flex;gap:2.2cqw;font-size:.82cqw;letter-spacing:.22em;text-transform:uppercase;color:rgba(255,255,255,0.7);}
+  .slide.title .meta span strong{display:block;color:#FFFFFF;font-weight:500;margin-top:.35cqw;letter-spacing:.08em;text-transform:none;font-size:1.1cqw;}
+
+  /* --- slide 2: agenda --- */
+  .agenda-grid{margin-top:auto;display:grid;grid-template-columns:repeat(2,1fr);gap:1.6cqw 4cqw;}
+  .agenda-item{display:grid;grid-template-columns:3cqw 1fr;gap:1.4cqw;padding:1.2cqw 0;border-top:1px solid var(--rule);}
+  .agenda-item .num{font-size:.9cqw;font-weight:500;color:var(--accent);letter-spacing:.04em;padding-top:.3cqw;}
+  .agenda-item .ttl{font-size:var(--fs-subhead);font-weight:500;line-height:1.2;letter-spacing:-.012em;}
+  .agenda-item .sub{font-size:var(--fs-body);color:var(--ink-muted);margin-top:.4cqw;line-height:1.5;}
+
+  /* --- slide 3: statement --- */
+  .statement{margin:auto 0;max-width:82%;font-size:var(--fs-feature);font-weight:400;line-height:1.3;letter-spacing:-.016em;color:#FFFFFF;}
+
+  /* --- slides 4/5: two-column / narrative --- */
+  .cols{margin-top:auto;display:grid;grid-template-columns:1fr 1fr;gap:4cqw;padding-top:2cqw;border-top:1px solid var(--rule);}
+  .cols .col h3{font-size:var(--fs-subhead);font-weight:500;letter-spacing:-.012em;margin-bottom:.8cqw;color:var(--ink);}
+  .cols .col p{font-size:var(--fs-body);line-height:1.6;color:var(--ink-muted);margin-bottom:.7cqw;}
+  .cols .col p:last-child{margin-bottom:0;}
+
+  /* --- slide 6: stats --- */
+  .stats{margin-top:auto;display:grid;grid-template-columns:repeat(3,1fr);gap:3cqw;padding-top:3cqw;border-top:1px solid var(--rule);}
+  .stat .num{font-size:5.8cqw;font-weight:500;letter-spacing:-.03em;line-height:1;color:var(--accent);}
+  .stat .lbl{margin-top:.8cqw;font-size:.95cqw;font-weight:500;color:var(--ink);}
+  .stat .desc{margin-top:.4cqw;font-size:.9cqw;color:var(--ink-muted);line-height:1.55;}
+
+  /* --- slide 7: principles (dark) --- */
+  .plist{margin-top:auto;display:flex;flex-direction:column;}
+  .prow{display:grid;grid-template-columns:3cqw 1.3fr 1fr;gap:2.4cqw;padding:1.6cqw 0;border-bottom:1px solid var(--rule-dark);align-items:baseline;}
+  .prow:first-child{border-top:1px solid var(--rule-dark);}
+  .prow .idx{font-size:.9cqw;font-weight:500;color:var(--accent-soft);letter-spacing:.04em;}
+  .prow .h{font-size:var(--fs-subhead);font-weight:500;letter-spacing:-.012em;color:#F2F1EC;}
+  .prow .d{font-size:var(--fs-body);color:rgba(242,241,236,0.72);line-height:1.55;}
+
+  /* --- slide 8: methodology --- */
+  .method{margin-top:auto;display:flex;flex-direction:column;}
+  .mrow{display:grid;grid-template-columns:6cqw 1fr 1.6fr;gap:1.8cqw;padding:.75cqw 0;border-bottom:1px solid var(--rule);align-items:baseline;}
+  .mrow:first-child{border-top:1px solid var(--rule);}
+  .mrow .step{font-size:.78cqw;font-weight:500;color:var(--accent);letter-spacing:.12em;text-transform:uppercase;}
+  .mrow h4{font-size:var(--fs-body);font-weight:500;color:var(--ink);line-height:1.25;letter-spacing:-.012em;}
+  .mrow p{font-size:var(--fs-body);line-height:1.5;color:var(--ink-muted);}
+
+  /* --- slide 9: quote --- */
+  .quote{margin:auto 0;max-width:82%;}
+  .quote .mark-q{font-size:4.5cqw;font-weight:500;color:var(--accent);line-height:0;display:inline-block;transform:translateY(1.2cqw);}
+  .quote .q{font-size:var(--fs-feature);font-weight:400;line-height:1.3;letter-spacing:-.014em;}
+  .quote .attr{margin-top:2.2cqw;font-size:.88cqw;letter-spacing:.2em;text-transform:uppercase;color:var(--ink-muted);}
+
+  /* --- slide 10: case study --- */
+  .case{margin-top:auto;display:grid;grid-template-columns:1.4fr 1fr;gap:4cqw;padding-top:2cqw;border-top:1px solid var(--rule);align-items:start;}
+  .case h3{font-size:var(--fs-subhead);font-weight:500;letter-spacing:-.012em;margin-bottom:.7cqw;color:var(--ink);}
+  .case p{font-size:var(--fs-body);line-height:1.6;color:var(--ink-muted);margin-bottom:.7cqw;}
+  .case p:last-child{margin-bottom:0;}
+  .case .proofs{display:flex;flex-direction:column;}
+  .case .proof{padding:.9cqw 0;border-top:1px solid var(--rule);}
+  .case .proof .num{font-size:var(--fs-feature);font-weight:500;letter-spacing:-.025em;line-height:1;color:var(--accent);}
+  .case .proof .lbl{margin-top:.4cqw;font-size:.8cqw;font-weight:500;color:var(--ink);}
+  .case .proof .desc{margin-top:.25cqw;font-size:.75cqw;color:var(--ink-muted);line-height:1.45;}
+
+  /* --- slide 11: deliverables --- */
+  .deliver{margin-top:auto;display:grid;grid-template-columns:repeat(2,1fr);gap:1.2cqw 4cqw;padding-top:2cqw;border-top:1px solid var(--rule);}
+  .dv{display:grid;grid-template-columns:2.8cqw 1fr;gap:1cqw;padding:.6cqw 0;}
+  .dv .n{font-size:.85cqw;font-weight:500;color:var(--accent);letter-spacing:.04em;padding-top:.2cqw;}
+  .dv .t{font-size:1cqw;font-weight:500;letter-spacing:-.012em;color:var(--ink);margin-bottom:.3cqw;}
+  .dv .d{font-size:.82cqw;color:var(--ink-muted);line-height:1.5;}
+
+  /* --- slide 13: horizontal bar chart --- */
+  .chart-bar{margin-top:auto;padding-top:2.4cqw;border-top:1px solid var(--rule);}
+  .bar-row{display:grid;grid-template-columns:11cqw 1fr 5cqw;gap:1.4cqw;align-items:center;padding:.9cqw 0;border-bottom:1px solid var(--rule);}
+  .bar-row:last-child{border-bottom:none;}
+  .bar-row .bar-label{font-size:.9cqw;font-weight:500;color:var(--ink);}
+  .bar-row .bar-track{height:1.2cqw;background:rgba(18,19,50,0.06);border-radius:1px;overflow:hidden;}
+  .bar-row .bar-fill{height:100%;background:var(--accent);}
+  .bar-row .bar-val{font-size:.9cqw;font-weight:500;color:var(--accent);font-variant-numeric:tabular-nums;text-align:right;letter-spacing:-.008em;}
+
+  /* --- slide 14: vertical column chart --- */
+  .chart-col{margin-top:auto;padding-top:2.4cqw;border-top:1px solid var(--rule);display:flex;align-items:flex-end;gap:1.4cqw;height:20cqw;}
+  .col-item{flex:1;display:flex;flex-direction:column;align-items:center;gap:.6cqw;justify-content:flex-end;height:100%;}
+  .col-item .col-bar{width:100%;background:var(--accent);border-radius:1px 1px 0 0;position:relative;}
+  .col-item .col-bar .col-val{position:absolute;top:-1.8cqw;left:0;right:0;font-size:.85cqw;font-weight:500;color:var(--accent);font-variant-numeric:tabular-nums;text-align:center;}
+  .col-item .col-lbl{font-size:.8cqw;color:var(--ink-muted);letter-spacing:.06em;text-transform:uppercase;font-weight:500;}
+
+  /* --- slide 15: line chart (SVG) --- */
+  .chart-line{margin-top:auto;padding-top:2.4cqw;border-top:1px solid var(--rule);display:grid;grid-template-columns:1fr 12cqw;gap:3cqw;align-items:center;}
+  .chart-line svg{width:100%;height:auto;display:block;}
+  .chart-line .line-legend{display:flex;flex-direction:column;gap:1cqw;}
+  .chart-line .line-legend .leg{display:flex;align-items:center;gap:.8cqw;}
+  .chart-line .line-legend .swatch{width:1.4cqw;height:.2cqw;border-radius:1px;background:var(--accent);}
+  .chart-line .line-legend .swatch.soft{background:var(--accent-soft);}
+  .chart-line .line-legend .lbl{font-size:.85cqw;color:var(--ink);}
+  .chart-line .line-legend .val{font-size:1.6cqw;font-weight:500;color:var(--accent);letter-spacing:-.014em;font-variant-numeric:tabular-nums;margin-top:.2cqw;}
+
+  /* --- slide 16: donut chart --- */
+  .donut-layout{margin-top:auto;display:grid;grid-template-columns:16cqw 1fr;gap:4cqw;padding-top:2.4cqw;border-top:1px solid var(--rule);align-items:center;}
+  .donut-wrap{position:relative;width:16cqw;height:16cqw;}
+  .donut{width:100%;height:100%;border-radius:50%;background:conic-gradient(var(--accent) 0 108deg,var(--accent-soft) 108deg 216deg,#DCDCF5 216deg 360deg);display:flex;align-items:center;justify-content:center;}
+  .donut::before{content:'';width:9cqw;height:9cqw;background:var(--slide-bg);border-radius:50%;}
+  .donut-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;}
+  .donut-center .big{font-size:2.2cqw;font-weight:500;color:var(--ink);letter-spacing:-.022em;line-height:1;}
+  .donut-center .lbl{font-size:.7cqw;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);font-weight:500;margin-top:.35cqw;}
+  .donut-legend{display:flex;flex-direction:column;gap:1.2cqw;}
+  .donut-legend .leg{display:grid;grid-template-columns:1.2cqw 1fr 4cqw;gap:1cqw;align-items:center;padding:.6cqw 0;border-bottom:1px solid var(--rule);}
+  .donut-legend .leg:last-child{border-bottom:none;}
+  .donut-legend .swatch{width:1.2cqw;height:1.2cqw;border-radius:2px;background:var(--accent);}
+  .donut-legend .swatch.s2{background:var(--accent-soft);}
+  .donut-legend .swatch.s3{background:#DCDCF5;}
+  .donut-legend .lbl{font-size:.95cqw;color:var(--ink);}
+  .donut-legend .pct{font-size:.95cqw;font-weight:500;color:var(--accent);font-variant-numeric:tabular-nums;text-align:right;}
+
+  /* --- slide 17: progress bars --- */
+  .progress-stack{margin-top:auto;padding-top:2.4cqw;border-top:1px solid var(--rule);display:flex;flex-direction:column;gap:1.8cqw;}
+  .progress-row{display:flex;flex-direction:column;gap:.6cqw;}
+  .progress-row .hdr{display:flex;justify-content:space-between;align-items:baseline;}
+  .progress-row .lbl{font-size:1cqw;font-weight:500;color:var(--ink);letter-spacing:-.008em;}
+  .progress-row .val{font-size:.85cqw;color:var(--ink-muted);font-variant-numeric:tabular-nums;}
+  .progress-row .track{height:.6cqw;background:rgba(18,19,50,0.06);border-radius:1px;overflow:hidden;}
+  .progress-row .fill{height:100%;background:var(--accent);border-radius:1px;}
+
+  /* --- slide 18: horizontal timeline --- */
+  .timeline-h{margin-top:auto;padding-top:3.6cqw;padding-bottom:.6cqw;position:relative;}
+  .timeline-h::before{content:'';position:absolute;top:5.2cqw;left:0;right:0;height:1px;background:var(--rule);}
+  .tl-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:2cqw;}
+  .tl-item{position:relative;padding-top:2.8cqw;}
+  .tl-item::before{content:'';position:absolute;top:1.8cqw;left:0;width:.9cqw;height:.9cqw;background:var(--accent);border-radius:50%;}
+  .tl-item .date{font-size:.72cqw;font-weight:500;color:var(--accent);letter-spacing:.14em;text-transform:uppercase;margin-bottom:.4cqw;}
+  .tl-item .t{font-size:1cqw;font-weight:500;color:var(--ink);line-height:1.25;margin-bottom:.35cqw;letter-spacing:-.012em;}
+  .tl-item .d{font-size:.76cqw;color:var(--ink-muted);line-height:1.5;}
+
+  /* --- slide 19: KPI dashboard --- */
+  .kpi-grid{margin-top:auto;display:grid;grid-template-columns:repeat(2,1fr);gap:.8cqw;padding-top:2cqw;}
+  .kpi-tile{padding:2cqw;background:rgba(18,19,50,0.025);border:1px solid var(--rule);border-radius:2px;}
+  .kpi-tile .lbl{font-size:.75cqw;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin-bottom:1cqw;}
+  .kpi-tile .num{font-size:3.6cqw;font-weight:500;letter-spacing:-.028em;line-height:1;color:var(--accent);font-variant-numeric:tabular-nums;}
+  .kpi-tile .delta{margin-top:.8cqw;font-size:.85cqw;color:var(--ink-muted);display:flex;align-items:center;gap:.4cqw;}
+  .kpi-tile .delta.up{color:var(--good);}
+  .kpi-tile .delta.down{color:var(--bad);}
+  .kpi-tile .delta .arr{font-weight:500;}
+
+  /* --- slides 20/21: KPI scorecards (MoM + YoY) --- */
+  .kpi-table{margin-top:auto;padding-top:1.6cqw;}
+  .kpi-table .head,.kpi-table .kpi-row{
+    display:grid;
+    grid-template-columns:1.8fr 1fr 1fr 1fr 1fr;
+    gap:1.4cqw;
+    align-items:center;
+  }
+  .kpi-table .head{
+    padding:0 0 .7cqw;
+    border-bottom:1px solid var(--rule);
+    font-size:.7cqw;font-weight:500;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--ink-muted);
+  }
+  .kpi-table .head .ta{text-align:right;}
+  .kpi-table .kpi-row{padding:.85cqw 0;border-bottom:1px solid var(--rule);}
+  .kpi-table .kpi-row:last-child{border-bottom:none;}
+  .kpi-table .metric .name{font-size:.95cqw;font-weight:500;color:var(--ink);letter-spacing:-.008em;line-height:1.25;}
+  .kpi-table .metric .desc{font-size:.7cqw;color:var(--ink-muted);margin-top:.2cqw;line-height:1.4;}
+  .kpi-table .target{font-size:.88cqw;color:var(--ink-muted);text-align:right;font-variant-numeric:tabular-nums;letter-spacing:-.008em;}
+  .kpi-table .actual{font-size:.95cqw;font-weight:500;color:var(--ink);text-align:right;font-variant-numeric:tabular-nums;letter-spacing:-.008em;}
+  .kpi-table .variance,
+  .kpi-table .delta{
+    font-size:.88cqw;font-weight:500;text-align:right;
+    font-variant-numeric:tabular-nums;letter-spacing:-.008em;
+    display:flex;align-items:baseline;justify-content:flex-end;gap:.35cqw;
+  }
+  .kpi-table .variance.good,.kpi-table .delta.good{color:var(--good);}
+  .kpi-table .variance.bad,.kpi-table .delta.bad{color:var(--bad);}
+  .kpi-table .variance.flat,.kpi-table .delta.flat{color:var(--ink-muted);}
+  .kpi-table .delta .arr{font-size:.82cqw;font-weight:600;line-height:1;}
+
+  /* --- slide 22: KPI scorecard with status pills --- */
+  .kpi-table .status{
+    font-size:.72cqw;font-weight:500;text-align:right;
+    display:flex;align-items:center;justify-content:flex-end;gap:.4cqw;
+    letter-spacing:-.008em;
+  }
+  .kpi-table .status .pip{width:.55cqw;height:.55cqw;border-radius:50%;flex-shrink:0;}
+  .kpi-table .status.on-track{color:var(--good);}
+  .kpi-table .status.on-track .pip{background:var(--good);}
+  .kpi-table .status.off-track{color:var(--bad);}
+  .kpi-table .status.off-track .pip{background:var(--bad);}
+
+  /* --- slide 23: image hero (full-bleed) --- */
+  .slide.hero-slide{color:#FFFFFF;}
+  .slide.hero-slide .hero-bg{position:absolute;inset:0;z-index:1;}
+  .slide.hero-slide .hero-bg .img-ph{width:100%;height:100%;border:none;border-radius:0;font-size:.9cqw;color:rgba(255,255,255,0.5);}
+  .slide.hero-slide .hero-bg::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,0.15) 0%,rgba(0,0,0,0) 40%,rgba(0,0,0,0.65) 100%);}
+  .slide.hero-slide .inner{justify-content:flex-end;}
+  .slide.hero-slide .meta-row{border-color:rgba(255,255,255,0.25);}
+  .slide.hero-slide .eyebrow{color:rgba(255,255,255,0.85);}
+  .slide.hero-slide .sec{color:rgba(255,255,255,0.55);}
+  .slide.hero-slide .h2,.slide.hero-slide h2{color:#FFFFFF;max-width:70%;}
+  .slide.hero-slide .body{color:rgba(255,255,255,0.82);max-width:55%;margin-top:1.4cqw;}
+  .slide.hero-slide .chrome{color:rgba(255,255,255,0.55);}
+  .slide.hero-slide .chrome .dot{background:#FFFFFF;}
+
+  /* --- slide 22: image + text split --- */
+  .split-image{margin-top:auto;display:grid;grid-template-columns:1fr 1fr;gap:4cqw;padding-top:2.4cqw;border-top:1px solid var(--rule);align-items:center;}
+  .split-image .img-ph{aspect-ratio:16/10;}
+  .split-image .txt h3{font-size:var(--fs-subhead);font-weight:500;letter-spacing:-.012em;margin-bottom:.9cqw;color:var(--ink);}
+  .split-image .txt p{font-size:var(--fs-body);line-height:1.65;color:var(--ink-muted);margin-bottom:.85cqw;}
+  .split-image .txt p:last-child{margin-bottom:0;}
+
+  /* --- image row (4-up single row with captions) --- */
+  .img-grid-2{margin-top:auto;display:grid;grid-template-columns:repeat(4,1fr);gap:.8cqw;padding-top:2.4cqw;border-top:1px solid var(--rule);}
+  .img-grid-2 .cell{display:flex;flex-direction:column;gap:.5cqw;}
+  .img-grid-2 .cell .img-ph{aspect-ratio:4/3;}
+  .img-grid-2 .cap{font-size:.7cqw;color:var(--ink-muted);letter-spacing:.04em;line-height:1.4;}
+
+  /* --- slide 24: contact sheet 6-up (16:9 cells, 3x2 grid) --- */
+  .img-grid-6{margin-top:auto;display:grid;grid-template-columns:repeat(3,1fr);gap:.6cqw;padding-top:2.4cqw;border-top:1px solid var(--rule);}
+  .img-grid-6 .img-ph{aspect-ratio:16/9;}
+
+  /* --- slide 25: before / after --- */
+  .before-after{margin-top:auto;display:grid;grid-template-columns:1fr 1fr;gap:1.6cqw;padding-top:2.4cqw;border-top:1px solid var(--rule);}
+  .ba-item{display:flex;flex-direction:column;gap:.6cqw;}
+  .ba-item .lbl{font-size:.72cqw;font-weight:500;letter-spacing:.22em;text-transform:uppercase;color:var(--accent);}
+  .ba-item.before .lbl{color:var(--ink-muted);}
+  .ba-item .img-ph{aspect-ratio:16/9;}
+  .ba-item .cap{font-size:.8cqw;color:var(--ink-muted);line-height:1.5;}
+
+  /* --- slide 26: image with callouts --- */
+  .image-callout{margin-top:auto;display:grid;grid-template-columns:1.5fr 1fr;gap:3cqw;padding-top:2.4cqw;border-top:1px solid var(--rule);align-items:start;}
+  .image-callout .img-ph{aspect-ratio:16/10;}
+  .callouts{display:flex;flex-direction:column;gap:1.4cqw;}
+  .co-item{display:grid;grid-template-columns:2.2cqw 1fr;gap:1cqw;align-items:start;}
+  .co-item .n{width:2cqw;height:2cqw;background:var(--accent);color:#FFFFFF;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.85cqw;font-weight:500;line-height:1;}
+  .co-item .t{font-size:1cqw;font-weight:500;color:var(--ink);margin-bottom:.3cqw;line-height:1.2;letter-spacing:-.008em;}
+  .co-item .d{font-size:.82cqw;color:var(--ink-muted);line-height:1.5;}
+
+  /* --- slide 27: team grid --- */
+  .team-grid{margin-top:auto;display:grid;grid-template-columns:repeat(4,1fr);gap:2cqw;padding-top:2.4cqw;border-top:1px solid var(--rule);}
+  .team-grid .member{display:flex;flex-direction:column;gap:.9cqw;}
+  .team-grid .avatar{aspect-ratio:1;border-radius:50%;background:rgba(18,19,50,0.05);border:1px dashed var(--rule);display:flex;align-items:center;justify-content:center;font-size:.7cqw;color:var(--ink-faint);letter-spacing:.22em;text-transform:uppercase;font-weight:500;}
+  .team-grid .name{font-size:1cqw;font-weight:500;color:var(--ink);letter-spacing:-.012em;}
+  .team-grid .role{font-size:.82cqw;color:var(--ink-muted);margin-top:.2cqw;line-height:1.45;}
+
+  /* --- slide 28: logo wall --- */
+  .logo-wall{margin-top:auto;display:grid;grid-template-columns:repeat(4,1fr);gap:.6cqw;padding-top:2.4cqw;border-top:1px solid var(--rule);}
+  .logo{aspect-ratio:16/9;background:rgba(18,19,50,0.03);border:1px solid var(--rule);border-radius:2px;display:flex;align-items:center;justify-content:center;font-size:.72cqw;color:var(--ink-faint);letter-spacing:.22em;text-transform:uppercase;font-weight:500;}
+
+  /* --- client logo strip (image-based; centered headline) --- */
+  .client-strip{margin:auto 0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3.2cqw;width:100%;}
+  .client-strip .h1,.client-strip .h2{text-align:center;}
+  .client-strip img{display:block;width:82%;height:auto;border:none;background:transparent;}
+
+  /* --- slide 29: quote trio --- */
+  .quote-trio{margin-top:auto;display:grid;grid-template-columns:repeat(3,1fr);gap:2cqw;padding-top:2.4cqw;border-top:1px solid var(--rule);}
+  .qt{display:flex;flex-direction:column;gap:1cqw;}
+  .qt .mark{font-size:2.6cqw;font-weight:500;color:var(--accent);line-height:.6;}
+  .qt .q{font-size:1cqw;color:var(--ink);line-height:1.5;letter-spacing:-.008em;}
+  .qt .attr{margin-top:auto;font-size:.7cqw;color:var(--ink-muted);letter-spacing:.14em;text-transform:uppercase;padding-top:.8cqw;border-top:1px solid var(--rule);}
+
+  /* --- slide 30: org chart --- */
+  .org-chart{margin-top:auto;padding-top:2.4cqw;border-top:1px solid var(--rule);display:flex;flex-direction:column;align-items:center;gap:1.4cqw;position:relative;}
+  .org-lead{padding:1cqw 2cqw;background:var(--accent);color:#FFFFFF;border-radius:2px;font-size:1cqw;font-weight:500;text-align:center;min-width:12cqw;}
+  .org-lead .sub{display:block;font-size:.75cqw;font-weight:400;opacity:.8;margin-top:.2cqw;letter-spacing:.08em;text-transform:uppercase;}
+  .org-line{width:1px;height:1.6cqw;background:var(--rule);}
+  .org-branches{display:grid;grid-template-columns:repeat(4,1fr);gap:1cqw;width:100%;position:relative;}
+  .org-branches::before{content:'';position:absolute;top:-.8cqw;left:12.5%;right:12.5%;height:1px;background:var(--rule);}
+  .org-node{padding:.9cqw 1cqw;background:rgba(18,19,50,0.03);border:1px solid var(--rule);border-radius:2px;font-size:.9cqw;font-weight:500;color:var(--ink);text-align:center;position:relative;}
+  .org-node::before{content:'';position:absolute;top:-.8cqw;left:50%;width:1px;height:.8cqw;background:var(--rule);}
+  .org-node .role{display:block;font-size:.7cqw;font-weight:400;color:var(--ink-muted);margin-top:.2cqw;letter-spacing:.08em;text-transform:uppercase;}
+
+  /* --- slide 31: section divider --- */
+  .section-divider .inner{justify-content:center;}
+  .section-divider .divider-wrap{display:flex;flex-direction:column;gap:1.2cqw;max-width:78%;}
+  .section-divider .label{font-size:.9cqw;font-weight:500;letter-spacing:.28em;text-transform:uppercase;color:var(--accent);}
+  .section-divider .big-num{font-size:15cqw;font-weight:600;color:var(--ink);line-height:.85;letter-spacing:-.05em;font-variant-numeric:tabular-nums;}
+  .section-divider.dark .big-num{color:#F2F1EC;}
+  .section-divider .section-title{font-size:2.8cqw;font-weight:500;color:var(--ink);letter-spacing:-.022em;line-height:1.05;margin-top:.4cqw;}
+  .section-divider.dark .section-title{color:#F2F1EC;}
+  .section-divider .sub{font-size:1.1cqw;color:var(--ink-muted);max-width:70%;line-height:1.55;margin-top:.6cqw;}
+  .section-divider.dark .sub{color:rgba(242,241,236,0.72);}
+
+  /* --- slide 32: detailed TOC --- */
+  .big-toc{margin-top:auto;padding-top:1.6cqw;}
+  .toc-row{display:grid;grid-template-columns:3cqw 1fr 8cqw 3cqw;gap:1.6cqw;align-items:baseline;padding:.7cqw 0;border-bottom:1px solid var(--rule);}
+  .toc-row:last-child{border-bottom:none;}
+  .toc-row .n{font-size:.8cqw;font-weight:500;color:var(--accent);letter-spacing:.08em;}
+  .toc-row .t{font-size:1.1cqw;font-weight:500;color:var(--ink);letter-spacing:-.012em;}
+  .toc-row .sec-label{font-size:.72cqw;color:var(--ink-faint);letter-spacing:.16em;text-transform:uppercase;text-align:right;}
+  .toc-row .pg{font-size:.88cqw;color:var(--ink-muted);font-variant-numeric:tabular-nums;text-align:right;}
+
+  /* --- slide 33: problem / solution --- */
+  .prob-sol{margin-top:auto;display:grid;grid-template-columns:1fr 1fr;gap:0;padding-top:2cqw;border-top:1px solid var(--rule);}
+  .prob-sol .side{padding:0 2cqw;}
+  .prob-sol .side:first-child{border-right:1px solid var(--rule);padding-left:0;}
+  .prob-sol .side:last-child{padding-right:0;}
+  .prob-sol .side .lbl{font-size:.75cqw;font-weight:500;letter-spacing:.22em;text-transform:uppercase;margin-bottom:.8cqw;}
+  .prob-sol .problem .lbl{color:var(--bad);}
+  .prob-sol .solution .lbl{color:var(--accent);}
+  .prob-sol .side h3{font-size:var(--fs-subhead);font-weight:500;color:var(--ink);letter-spacing:-.014em;margin-bottom:.9cqw;line-height:1.25;}
+  .prob-sol .side p{font-size:var(--fs-body);color:var(--ink-muted);line-height:1.6;margin-bottom:.7cqw;}
+  .prob-sol .side p:last-child{margin-bottom:0;}
+
+  /* --- slide 34: transformation --- */
+  .transformation{margin-top:auto;display:grid;grid-template-columns:1fr 2.4cqw 1fr;gap:1.8cqw;padding-top:2cqw;border-top:1px solid var(--rule);align-items:center;}
+  .transformation .t-side{display:flex;flex-direction:column;gap:.8cqw;padding:1.6cqw;background:rgba(18,19,50,0.03);border:1px solid var(--rule);border-radius:2px;}
+  .transformation .t-side .lbl{font-size:.75cqw;font-weight:500;letter-spacing:.22em;text-transform:uppercase;color:var(--ink-muted);}
+  .transformation .t-side.after{background:rgba(61,63,183,0.06);border-color:var(--accent);}
+  .transformation .t-side.after .lbl{color:var(--accent);}
+  .transformation .t-side .state{font-size:var(--fs-subhead);font-weight:500;color:var(--ink);letter-spacing:-.014em;line-height:1.25;}
+  .transformation .t-side .desc{font-size:var(--fs-body);color:var(--ink-muted);line-height:1.5;}
+  .transformation .arrow{font-size:3.2cqw;color:var(--accent);text-align:center;line-height:1;font-weight:300;}
+
+  /* --- slide 35: 2x2 matrix --- */
+  .matrix-wrap{margin-top:auto;padding-top:1.6cqw;display:grid;grid-template-columns:6cqw 1fr;gap:.8cqw;}
+  .matrix-left-axis{display:flex;flex-direction:column;justify-content:space-around;padding-top:2cqw;}
+  .matrix-left-axis .ax{font-size:.72cqw;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);writing-mode:vertical-rl;transform:rotate(180deg);text-align:center;}
+  .matrix-body{display:grid;grid-template-rows:1.6cqw 1fr 1fr;grid-template-columns:1fr 1fr;gap:.5cqw;height:22cqw;}
+  .matrix-top-axis{grid-column:1 / 3;display:grid;grid-template-columns:1fr 1fr;gap:.6cqw;}
+  .matrix-top-axis .ax{font-size:.72cqw;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);text-align:center;}
+  .matrix-body .quad{padding:1cqw 1.2cqw;background:rgba(18,19,50,0.03);border:1px solid var(--rule);border-radius:2px;display:flex;flex-direction:column;gap:.4cqw;}
+  .matrix-body .quad.highlight{background:rgba(61,63,183,0.08);border-color:var(--accent);}
+  .matrix-body .quad .t{font-size:.95cqw;font-weight:500;color:var(--ink);letter-spacing:-.012em;}
+  .matrix-body .quad .d{font-size:.75cqw;color:var(--ink-muted);line-height:1.45;}
+
+  /* --- slide 36: callout / insight --- */
+  .callout-box{margin:auto 0;padding:4cqw 4.5cqw;background:rgba(61,63,183,0.04);border:1px solid var(--rule);border-left:3px solid var(--accent);border-radius:2px;max-width:82%;}
+  .callout-box .label{font-size:.8cqw;font-weight:500;letter-spacing:.24em;text-transform:uppercase;color:var(--accent);margin-bottom:1.6cqw;}
+  .callout-box .insight{font-size:2.1cqw;font-weight:500;color:var(--ink);letter-spacing:-.018em;line-height:1.25;}
+  .callout-box .insight em{color:var(--accent);}
+  .callout-box .source{margin-top:2cqw;padding-top:1.2cqw;border-top:1px solid var(--rule);font-size:.82cqw;color:var(--ink-muted);letter-spacing:.08em;}
+
+  /* --- slide 37: pricing tiers --- */
+  .tiers{margin-top:auto;display:grid;grid-template-columns:repeat(3,1fr);gap:.8cqw;padding-top:1.8cqw;border-top:1px solid var(--rule);}
+  .tier{padding:1.4cqw;background:rgba(18,19,50,0.025);border:1px solid var(--rule);border-radius:2px;display:flex;flex-direction:column;gap:.7cqw;}
+  .tier.highlight{background:rgba(61,63,183,0.05);border-color:var(--accent);}
+  .tier .name{font-size:.72cqw;font-weight:500;letter-spacing:.22em;text-transform:uppercase;color:var(--ink-muted);}
+  .tier.highlight .name{color:var(--accent);}
+  .tier .price{font-size:2.2cqw;font-weight:500;color:var(--ink);letter-spacing:-.024em;line-height:1;}
+  .tier.highlight .price{color:var(--accent);}
+  .tier .price .per{font-size:.78cqw;font-weight:400;color:var(--ink-muted);letter-spacing:0;margin-left:.4cqw;}
+  .tier .tagline{font-size:.8cqw;color:var(--ink-muted);line-height:1.45;}
+  .tier .features{display:flex;flex-direction:column;gap:.4cqw;margin-top:.4cqw;padding-top:.8cqw;border-top:1px solid var(--rule);}
+  .tier .feature{font-size:.8cqw;color:var(--ink);display:flex;gap:.6cqw;align-items:baseline;}
+  .tier .feature::before{content:'·';color:var(--accent);font-weight:600;}
+
+  /* --- slide 38: feature grid --- */
+  .feature-grid{margin-top:auto;display:grid;grid-template-columns:repeat(3,1fr);gap:1.6cqw 2.4cqw;padding-top:1.8cqw;border-top:1px solid var(--rule);}
+  .feature{display:flex;flex-direction:column;gap:.6cqw;}
+  .feature .icon{width:2.2cqw;height:2.2cqw;background:rgba(61,63,183,0.08);border-radius:2px;display:flex;align-items:center;justify-content:center;font-size:1.2cqw;color:var(--accent);font-weight:500;}
+  .feature .t{font-size:1cqw;font-weight:500;color:var(--ink);letter-spacing:-.012em;line-height:1.2;}
+  .feature .d{font-size:.78cqw;color:var(--ink-muted);line-height:1.5;}
+
+  /* --- slide 39: journey map --- */
+  .journey{margin-top:auto;padding-top:2.4cqw;border-top:1px solid var(--rule);}
+  .journey-stages{display:grid;grid-template-columns:repeat(5,1fr);gap:.8cqw;position:relative;}
+  .journey-stage{display:flex;flex-direction:column;gap:.7cqw;padding:1.2cqw;background:rgba(18,19,50,0.025);border-radius:2px;position:relative;}
+  .journey-stage .num{font-size:.72cqw;font-weight:500;color:var(--accent);letter-spacing:.14em;text-transform:uppercase;}
+  .journey-stage .t{font-size:.95cqw;font-weight:500;color:var(--ink);letter-spacing:-.01em;line-height:1.3;}
+  .journey-stage .d{font-size:.72cqw;color:var(--ink-muted);line-height:1.5;}
+  .journey-stage + .journey-stage::before{content:'→';position:absolute;left:-.9cqw;top:50%;transform:translateY(-50%);color:var(--accent);font-size:1.2cqw;z-index:1;background:var(--slide-bg);padding:0 .15cqw;line-height:1;}
+
+  /* --- slide 40: framework stack --- */
+  .stack{margin-top:auto;padding-top:1.8cqw;border-top:1px solid var(--rule);display:flex;flex-direction:column;gap:.5cqw;}
+  .stack-row{display:grid;grid-template-columns:10cqw 1fr;gap:2cqw;padding:.9cqw 1.4cqw;background:rgba(18,19,50,0.03);border:1px solid var(--rule);border-radius:2px;align-items:baseline;}
+  .stack-row.emphasis{background:rgba(61,63,183,0.06);border-color:var(--accent);}
+  .stack-row .layer{font-size:.75cqw;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);}
+  .stack-row .layer .idx{color:var(--accent);margin-right:.6cqw;}
+  .stack-row .body{display:flex;align-items:baseline;gap:1.2cqw;}
+  .stack-row .t{font-size:1cqw;font-weight:500;color:var(--ink);letter-spacing:-.012em;min-width:11cqw;}
+  .stack-row .d{font-size:.78cqw;color:var(--ink-muted);line-height:1.45;}
+
+  /* --- slide 41: spec sheet --- */
+  .spec-sheet{margin-top:auto;padding-top:1.6cqw;display:grid;grid-template-columns:1fr 1fr;gap:0 4cqw;}
+  .spec-row{display:grid;grid-template-columns:1fr auto;gap:1.6cqw;padding:.65cqw 0;border-bottom:1px solid var(--rule);align-items:baseline;}
+  .spec-row .k{font-size:.8cqw;color:var(--ink-muted);letter-spacing:.04em;}
+  .spec-row .v{font-size:.88cqw;font-weight:500;color:var(--ink);font-variant-numeric:tabular-nums;letter-spacing:-.008em;}
+
+  /* --- slide 42: close --- */
+  .close-layout{margin-top:auto;display:grid;grid-template-columns:1.5fr 1fr;gap:6cqw;align-items:end;}
+  .close-layout .cta{display:inline-flex;align-items:center;gap:1cqw;padding:1.4cqw 2cqw;background:#FFFFFF;color:var(--slide-bg-dark);border-radius:2px;font-size:1cqw;font-weight:500;text-decoration:none;}
+  .close-layout .contact{display:flex;flex-direction:column;gap:.5cqw;font-size:.98cqw;color:rgba(242,241,236,0.72);line-height:1.5;}
+  .close-layout .contact strong{color:#F2F1EC;font-weight:500;}
+
+  /* =================================================================
+     PRINT / PDF EXPORT
+     =================================================================
+     Forces one slide per page at exact 16:9 dimensions with full color
+     reproduction. Without this block, browsers default to Letter/A4
+     landscape (1.29:1), which leaves an off-white strip on the right
+     of each slide and misaligns the chrome. Keep this block intact
+     when adapting the template — it's what makes Cmd-P produce a
+     usable PDF for client handoff.
+     ================================================================= */
+  @media print{
+    @page{size:1400px 787px;margin:0;}
+    *,*::before,*::after{
+      -webkit-print-color-adjust:exact !important;
+      print-color-adjust:exact !important;
+      color-adjust:exact !important;
+    }
+    html,body{
+      background:#fff !important;
+      padding:0 !important;margin:0 !important;
+      width:1400px;
+    }
+    .gallery{gap:0 !important;max-width:none !important;margin:0 !important;}
+    .slide{
+      width:1400px !important;
+      height:787px !important;
+      aspect-ratio:auto !important;
+      border-radius:0 !important;
+      box-shadow:none !important;
+      page-break-after:always !important;
+      page-break-inside:avoid !important;
+      break-after:page !important;
+      break-inside:avoid !important;
+      opacity:1 !important;
+      transform:none !important;
+      overflow:hidden !important;
+    }
+    .slide:last-child{page-break-after:auto !important;}
+    .slide .bg{
+      display:block !important;
+      position:absolute !important;inset:0 !important;
+      background-size:cover !important;
+      background-position:center !important;
+    }
+    img{max-width:none !important;}
+  }
+</style>
+<!-- slate-fonts:start kit=rsk2vuw header=transducer-condensed body=proxima-nova -->
+<link rel="stylesheet" href="https://use.typekit.net/rsk2vuw.css">
+<style>
+  body{font-family:'proxima-nova','Inter',system-ui,-apple-system,sans-serif;}
+  .h1,.h2{font-family:'transducer-condensed','Inter',sans-serif;}
+  .h1{font-weight:700;text-transform:uppercase;letter-spacing:-.01em;font-size:7.8cqw;line-height:.98;}
+  .h2{font-weight:700;text-transform:uppercase;letter-spacing:-.01em;font-size:4.8cqw;line-height:1.0;}
+  .slide.title .h1{font-weight:700;letter-spacing:-.01em;font-size:9.5cqw;max-width:92%;}
+  .h1 em,.h2 em{font-weight:inherit;}
+  .statement{font-family:'arsenica-variable','Inter',serif;letter-spacing:-.01em;font-size:2.8cqw;}
+  .statement em{font-style:italic;font-weight:inherit;color:inherit;}
+  .quote .q{font-family:'arsenica-variable','Inter',serif;font-size:2.8cqw;}
+  .h1.serif,.h2.serif,.h3.serif{font-family:'arsenica-variable','Inter',serif;font-weight:450;text-transform:none;letter-spacing:-.02em;}
+  .h1.serif{font-size:6.2cqw;}
+  .h2.serif{font-size:4.2cqw;}
+  .h1.serif em,.h2.serif em{font-style:italic;font-weight:inherit;}
+  .chrome .logo{height:1.15cqw;width:auto;display:block;opacity:.95;border:none;background:transparent;border-radius:0;}
+  .slide:not(.dark) .chrome .logo{filter:brightness(0);opacity:.55;}
+</style>
+<!-- slate-fonts:end -->
+</head>
+<body>
+<main class="gallery">
+
+  <!-- 01 · TITLE -->
+  <section class="slide title has-bg dark">
+    <div class="bg"></div>
+    <div class="inner">
+      <div class="eyebrow">Monthly Performance Report · June 2026</div>
+      <div class="title-block" style="margin-top:auto;">
+        <h1 class="h1">Green Shield<br><em>Deck Builders.</em></h1>
+        <p class="sub">June 2026 performance across paid media, web, and lead generation.</p>
+        <div class="meta">
+          <span>Prepared by<strong>Deksia</strong></span>
+          <span>For<strong>Green Shield Deck Builders</strong></span>
+          <span>Date<strong>July 2026</strong></span>
+        </div>
+      </div>
+      <div class="chrome"><div class="mark"><span class="dot"></span><img class="logo" src="data:image/png;base64,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" alt="DEKSIA" data-wordmark="DEKSIA"></div><span>01 / 09</span></div>
+    </div>
+  </section>
+  <!-- 19 · KPI DASHBOARD -->
+  <section class="slide">
+    <div class="inner">
+      <div class="meta-row"><span class="eyebrow">Executive summary</span><span class="sec">June 2026</span></div>
+      <h2 class="h2" style="max-width:70%;font-size:3.9cqw;">Spend up 19%, leads up 20% — efficiency held.</h2>
+      <div class="kpi-grid">
+        <div class="kpi-tile"><div class="lbl">Ad spend · Meta</div><div class="num mono">$9,325.92</div><div class="delta up"><span class="arr">↑</span>+18.8% vs May</div></div>
+        <div class="kpi-tile"><div class="lbl">MQLs · calls + forms</div><div class="num mono">457</div><div class="delta up"><span class="arr">↑</span>+19.9% vs May</div></div>
+        <div class="kpi-tile"><div class="lbl">Qualified leads</div><div class="num mono">423</div><div class="delta up"><span class="arr">↑</span>+20.5% vs May</div></div>
+        <div class="kpi-tile"><div class="lbl">Blended CPL · Deksia-computed</div><div class="num mono">$19.43</div><div class="delta"><span class="arr">—</span>held flat vs May ($19.49)</div></div>
+      </div>
+      <div class="chrome"><div class="mark"><span class="dot"></span><img class="logo" src="data:image/png;base64,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" alt="DEKSIA" data-wordmark="DEKSIA"></div><span>02 / 09</span></div>
+    </div>
+  </section>
+  <!-- 14 · COLUMN CHART -->
+  <section class="slide">
+    <div class="inner">
+      <div class="meta-row"><span class="eyebrow">Ad spend by month</span><span class="sec">Jan – Jul 2026</span></div>
+      <h2 class="h2" style="max-width:75%;font-size:3.9cqw;">Investment has nearly tripled since spring.</h2>
+      <div class="chart-col">
+        <div class="col-item"><div class="col-bar" style="height:29%;"><div class="col-val">$3,251</div></div><div class="col-lbl">Jan</div></div>
+        <div class="col-item"><div class="col-bar" style="height:23%;"><div class="col-val">$2,560</div></div><div class="col-lbl">Feb</div></div>
+        <div class="col-item"><div class="col-bar" style="height:27%;"><div class="col-val">$3,002</div></div><div class="col-lbl">Mar</div></div>
+        <div class="col-item"><div class="col-bar" style="height:24%;"><div class="col-val">$2,660</div></div><div class="col-lbl">Apr</div></div>
+        <div class="col-item"><div class="col-bar" style="height:69%;"><div class="col-val">$7,853</div></div><div class="col-lbl">May</div></div>
+        <div class="col-item"><div class="col-bar" style="height:82%;"><div class="col-val">$9,326</div></div><div class="col-lbl">Jun</div></div>
+        <div class="col-item"><div class="col-bar" style="height:94%;"><div class="col-val">$11,322</div></div><div class="col-lbl">Jul (MTD)</div></div>
+      </div>
+      <div class="chrome"><div class="mark"><span class="dot"></span><img class="logo" src="data:image/png;base64,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" alt="DEKSIA" data-wordmark="DEKSIA"></div><span>03 / 09</span></div>
+    </div>
+  </section>
+  <!-- 13 · HORIZONTAL BAR CHART -->
+  <section class="slide">
+    <div class="inner">
+      <div class="meta-row"><span class="eyebrow">Paid media · Meta — Green Shield’s only paid channel</span><span class="sec">June 2026</span></div>
+      <h2 class="h2" style="max-width:80%;font-size:3.9cqw;">Where the Meta budget went.</h2>
+      <div class="chart-bar">
+        <div class="bar-row"><div class="bar-label">TOF_campaign2_traffic</div><div class="bar-track"><div class="bar-fill" style="width:92%;"></div></div><div class="bar-val">$3,502.43</div></div>
+        <div class="bar-row"><div class="bar-label">TOF_campaign1_videoviews</div><div class="bar-track"><div class="bar-fill" style="width:84%;"></div></div><div class="bar-val">$3,209.46</div></div>
+        <div class="bar-row"><div class="bar-label">GSDB — Welcome to Indiana (Leads)</div><div class="bar-track"><div class="bar-fill" style="width:20%;"></div></div><div class="bar-val">$753.07</div></div>
+        <div class="bar-row"><div class="bar-label">GSDB — Book for Spring (Leads)</div><div class="bar-track"><div class="bar-fill" style="width:19%;"></div></div><div class="bar-val">$705.28</div></div>
+        <div class="bar-row"><div class="bar-label">GSDB — What Makes GS Different Indiana (Leads) · 10 leads</div><div class="bar-track"><div class="bar-fill" style="width:18%;"></div></div><div class="bar-val">$666.81</div></div>
+        <div class="bar-row"><div class="bar-label">BOF_campaign3_leads · 5 leads</div><div class="bar-track"><div class="bar-fill" style="width:12%;"></div></div><div class="bar-val">$439.07</div></div>
+        <div class="bar-row"><div class="bar-label">TOTAL — 1,638,783 impressions · 28,802 clicks · 23 form leads (incl. 4 boosted posts, $49.80)</div><div class="bar-track"><div class="bar-fill" style="width:100%;"></div></div><div class="bar-val">$9,325.92</div></div>
+      </div>
+      <div class="chrome"><div class="mark"><span class="dot"></span><img class="logo" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAJoAAABCCAYAAACvks9VAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAOdEVYdFNvZnR3YXJlAEZpZ21hnrGWYwAACpBJREFUeAHtnAuMFlcVgM+5d2b+/99dkGp5NEILlbY+aCNQa9UKLYQQpE20PmLVRKLGSoxRLMakJEKNMfgIVWlNqa2GYGKp1Wpo8ZFS6rttbPqGAopbKVDWB4vs/o+Zufd47sI2+/9z/ycz+6D3S/7M7H3N68y555x7ZgEcDofD4XA4HA6Hw+FwOBwOh8PhcDgcDofD4XA4HA6Hw5EmROTDqxCEFCAqvj4O6ZO8K+q3gT6UdFBr3ZvLTX4B2iCuDHyMAOdCm2ign+VyPc/a6igML48puramOPQC3IrYdXhkYRSV3g1aL63qj3A4CLp/AE3gvlexcK0WCIv5HkznIo9ve5lHeIZP8F4vB9v5eC81G4fHEEqVPsD3r2tkOaLY5/tdf4EWMEIeh4NrQXjTknXqeb6euyAjUhG0MBy8EQHvaKPLAQJ1m+/33I6IqlFDvjl5FZf+wQ9pBrSJ1vRALt99na2OBeC3PPiyxPGAVvMNv2PE8QMVlV4mgHNqmsaeX5jG538c7Ofdzf22cL+PQmP+zS/RzUFQaCi0fL5X86C7E8cBfIH7vglaICqVloKkh+pUl/l6epo9j04RkAKyfYG9CEF+N45KjxttCBkhpfDqVhK0NIWFYen9FiEzknR/fSH772v42v7cgpAZzkWgO8Nw4OOQMYT6kgbV+VKp1PbL3CqpCNoZsEDF8OPxbLfwlPcle4W4rV6fOMzdxJvLoA34xfse34fXQYagoDc0qvdRt6QZO2GsBc3YbldHUfFTMA6pVCpGWOYna/A53y/83tanWCzOYuns4HposorKt0OWoLy0UTVJbKTxzojMBQ0RXjY/MJNVvTYgPg+dDW6M6v56P030PJwBUqiv2MoJ9K31+nieZlsKzktUIPTz+a5Dght4yv2NfVxazlpNQgbwuMa8eXujNkKIKyAjPMgQvqG/ZgNzhdk3xjEbtF/jq/1CsiVdQlS6ELFwENqAx1zMhvvjkAFEA9PjCK5PVCD0+V7X1nr9+PoW2sejtUHQdffp/e1xXN7LO7UaZAprd6NFn4TUqVzMx5vcqAVpuBIyIlONppSuDO+z0A3yjV5zWrsl20asCdrEJ/k/yAgdyxvB4uQI9q4bemYorXaO1vKPrzRB1muKrF6mAGrLtmuVuAIXNG9Fc4yXDRkw+jYa4QPWYoJZMI7gG/4JW7mI4YeNO4L1QQmhauJfeMzWTgMWIBN0KwLMTlklk+cw6oLGdsiAvQbzME6oVIofYYMyoQFYvd2DhcKLjfqysvqXtULj4pF/KqAYRhH06MJW2qlQZ2KnjbnXOR7hkMZqWzlh86A0absDggJuIOrrgTFCa3FNSw0R3gkZkKkzMBHhFY4P8uYqS9XTHNL4XdMBhNjN8+4GS80VcTT5q7z9ovkjCNTDcSw3scnwipfJ+2EQVH4CKcNmgMcB5De21BhpNmSAE7QkS2yFLIC3Qgt4Xv4P/FBNjG1RslaviaLyUd/PfwtxUh8X3ASjQvFS6+IN6puBxNerykjMgwyY0IIWkVrOIZPEsol52Cmv2R2Xfv5XrTQ0HmUcD36bNC6yNiD9TRY2MMIGo4SqyBkgdFUZe/8vKU072EyoEjS2oc9nDVjg6yhBikxoQWO75ztmvqmF1yc/xJufQnoE5XK5ZWfF87p3xGFpKz80+/qlEbbKgPBzPd+AUYCkWgBUrdH4tvUGARzjWGEtIo5Lb+VtSxkhrXJWOgMSdTekS7eU+rp2OkhffZlfhforEyg2sjbeAKOCSBj4WlMfT9/GQ+6vrSOVfuDWeZ0tIrA6PNEMxJ5jUUwr2DQ6UrcR0XoVldZDxnDE/y21ZTwb7Dq1A0/X1glBrTkObeAErUV4qrmeTpx4bTt9urq6DmmtlvHk3luvDa/HbgjD4hrICJPPx2ZjMiaIYv/QluiZRB/AiyFlzk5BI+yH9JEq7y1qt1MuN2kPkVrZSNjYetoUhuFCyIAoiqwrAp4XDWX1ao0HLSeUuqBN7PCG1mtByidGFhHpAT/X/VfIAhQmQeAX0CZG2CqVkyt5HfRBFqrZ1qEh3snaZy57eychRSREC7Q1L3XSkIAJD46QrqkiOI/o5NTTNlwqTGiN5qH/IAdRHxn5C4JUhGyfrZC9yPd1msZjhE0pvAaBjtdpMo3DIp+BlGFN+rbaMhPaYIEOzb5S8jlLNwxDuRRSxAVsLfDDWcXxpfvYLqtNM5/Krr/xyP5Ut+/AwIwoCKpie75fOWy0Q6FQ6GVP872nc/8TLzmCMAHcVONrNnuLr6snqgxuGDomxheQReMJ0OdDijhnoAZ+0x8Ogq5HtSJ7gFZT3TfdGN5xII7wNPjkyJ+K5feH2wxl5hKut/eH6VF0cgmkCGvQiyzFU/hC15sfC9kqsJ5Lug6BE7QaWMB2mC1Ksc1Wz95agzTtfhPUta31VC2me0F+I2/6rENouQxSgvr7z2FBmg4dgALfDCkyngQtkxTmthFUNhtexuLIOJ6orWY7bZbJBoYzgLVmzAb4RlsdgU4tH0zl8++CTkGYyxp6EqTEqAsa1k3soxDGESwMERvNVlssDtWn4QxhjWldNeApK7VUIkJeeuq4M0yFcCA1O20sEh/fYStn4/sojDd0/CNrOYo6dtSUorWYwPKVvf3FkhIjSAlCYf2qiV+gwyauN/zjAmtKvELsXFBryFTQeNmmavwoqqyDOt87Cl/tgjaJhWorUt8uMhjyDrWlaoHxLmsLh0IGhIl/b8Av19yodLIq8ZBXDFZYxmVfQzf99witwo5AcopHPOr5XTPZ4Zkz/NNaWF9+1q6zISWyDW8gXBuFRZMFYPLoZ/Jq7TRbMzZYDyK29/84TnXEXVE4WK5bj3jA97s6Tk3mc/oPn78JCNfGomTkCZMgubm2D4F6iMMUqxKDSXmvUqXNbPfsA41LWPis068gegxSwHxeF0flebVfOfKSUyJ5M5fL7YnDwWO1jgM7BPMhJbKOoxkPrGkmAJK+BzqC8g2/NSBo+MFsS0fQsI31ciLoKSS+ByyChkJu46e8yjLUuezR3jJ8YtZjAbzoBT33QQpE0eBlLPAJe48F8ABYj43m67QqQeNrt2q6ThgHXifu8YKuW2Cc4udwh62cH9iVJkGwtpy9VZPKvQM6QEph/ulNWh+tWE0Uttv+bitnjbDXUjiDr/FcSIExFTS+uF7Ph5XDyyHjEcRCLz+evZaqKVFU/nCyPZKnxedYO+2HNuCpdIuU6WXd8sxpTfVhR+Cf1vagrc5YFBXnQAqMjaCxl8OG6ubBUrTw1IMci1Og1lO9CbbbivnmWeNU5pM8XtdczkK3G5qfSGj+xQLbkp+FFJGItlgf8XkdsrUX4O23l4tUArep2GjCFzspoiZ2FpYIaQ9vH+Pp5Ql+CMVWxuZ2ZX6rNrH2a9vVRimfrVenNNwlEWqyEzCOFe6sbesFeLeKIKkhhP451MGsa/JmSRgOXs5LS+v4wc9nO2imSazmcnPthzTB/YGCLVjo6YUmeF75qTjKPXrKLq3CKsyEeCcSVDlKGuipfD7/N1t7EalfKgnzhBAjs5PDSMEj4Jh4mPVQcDgcDofD4XA4HA6Hw+FwOBwOh8PhcDgcDofD4XA4HI6zj/8D17IKB60p60gAAAAASUVORK5CYII=" alt="DEKSIA" data-wordmark="DEKSIA"></div><span>04 / 09</span></div>
+    </div>
+  </section>
+  <!-- 20 · KPI SCORECARD · MONTH OVER MONTH -->
+  <section class="slide">
+    <div class="inner">
+      <div class="meta-row"><span class="eyebrow">Across channels</span><span class="sec">June vs May 2026</span></div>
+      <h2 class="h2" style="max-width:80%;font-size:3.7cqw;">Channel by channel, month over month.</h2>
+      <div class="kpi-table">
+        <div class="head">
+          <div>Metric</div>
+          <div class="ta">May</div>
+          <div class="ta">June</div>
+          <div class="ta">MoM</div>
+          <div class="ta">Signal</div>
+        </div>
+        <div class="kpi-row">
+          <div class="metric"><div class="name">Meta impressions</div><div class="desc">Ad-level, summed</div></div>
+          <div class="target">1,843,604</div>
+          <div class="actual">1,638,783</div>
+          <div class="variance bad">−11.1%</div>
+          <div class="delta bad"><span class="arr">↓</span>softer</div>
+        </div>
+        <div class="kpi-row">
+          <div class="metric"><div class="name">Meta CTR</div><div class="desc">Account level, as Meta reports it</div></div>
+          <div class="target">1.62%</div>
+          <div class="actual">1.73%</div>
+          <div class="variance good">+6.9%</div>
+          <div class="delta good"><span class="arr">↑</span>improving</div>
+        </div>
+        <div class="kpi-row">
+          <div class="metric"><div class="name">Meta CPC</div><div class="desc">Account level, as Meta reports it</div></div>
+          <div class="target">$0.31</div>
+          <div class="actual">$0.35</div>
+          <div class="variance bad">+14.6%</div>
+          <div class="delta bad"><span class="arr">↑</span>costlier</div>
+        </div>
+        <div class="kpi-row">
+          <div class="metric"><div class="name">Website sessions</div><div class="desc">GA4 · greenshielddeckbuilders property</div></div>
+          <div class="target">6,221</div>
+          <div class="actual">5,539</div>
+          <div class="variance bad">−11.0%</div>
+          <div class="delta bad"><span class="arr">↓</span>softer</div>
+        </div>
+        <div class="kpi-row">
+          <div class="metric"><div class="name">Facebook Page engagement</div><div class="desc">Page Insights · organic + paid distribution</div></div>
+          <div class="target">15,971</div>
+          <div class="actual">16,334</div>
+          <div class="variance good">+2.3%</div>
+          <div class="delta good"><span class="arr">↑</span>improving</div>
+        </div>
+        <div class="kpi-row">
+          <div class="metric"><div class="name">Facebook video views</div><div class="desc">Page Insights</div></div>
+          <div class="target">454,419</div>
+          <div class="actual">348,088</div>
+          <div class="variance bad">−23.4%</div>
+          <div class="delta bad"><span class="arr">↓</span>softer</div>
+        </div>
+      </div>
+      <div class="chrome"><div class="mark"><span class="dot"></span><img class="logo" src="data:image/png;base64,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" alt="DEKSIA" data-wordmark="DEKSIA"></div><span>05 / 09</span></div>
+    </div>
+  </section>
+  <!-- 06 · STATS -->
+  <section class="slide">
+    <div class="inner">
+      <div class="meta-row"><span class="eyebrow">Lead generation · CallRail</span><span class="sec">June 2026</span></div>
+      <h2 class="h2" style="max-width:60%;">The lead engine,<br>in three figures.</h2>
+      <div class="stats">
+        <div class="stat"><div class="num mono">457</div><div class="lbl">MQLs — calls + form submissions</div><div class="desc">CallRail-attributed. Up 19.9% vs May. (Tracking live since May 11, 2026.)</div></div>
+        <div class="stat"><div class="num mono">423</div><div class="lbl">Qualified leads</div><div class="desc">Scored “good lead” by CallRail — 423 of the 457. Up 20.5% vs May.</div></div>
+        <div class="stat"><div class="num mono">$19.43</div><div class="lbl">Blended CPL — Deksia-computed</div><div class="desc">(Meta + Google Ads spend) ÷ (Meta leads + CallRail MQLs) = $9,325.92 ÷ 480. Meta’s own lead-form CPL was $258.56 (23 on-platform form leads).</div></div>
+      </div>
+      <div class="chrome"><div class="mark"><span class="dot"></span><img class="logo" src="data:image/png;base64,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" alt="DEKSIA" data-wordmark="DEKSIA"></div><span>06 / 09</span></div>
+    </div>
+  </section>
+  <!-- 22 · KPI SCORECARD · STATUS PILLS -->
+  <section class="slide">
+    <div class="inner">
+      <div class="meta-row"><span class="eyebrow">Goals</span><span class="sec">Set with Deksia</span></div>
+      <h2 class="h2" style="max-width:70%;font-size:3.7cqw;">Three of five goals achieved.</h2>
+      <div class="kpi-table">
+        <div class="head" style="grid-template-columns:2.2fr .8fr .8fr .8fr .8fr;">
+          <div>Metric</div>
+          <div class="ta">Actual</div>
+          <div class="ta">Goal</div>
+          <div class="ta">% to Goal</div>
+          <div class="ta">Status</div>
+        </div>
+        <div class="kpi-row" style="grid-template-columns:2.2fr .8fr .8fr .8fr .8fr;">
+          <div class="metric"><div class="name">MQLs</div><div class="desc">CallRail · due Jun 30</div></div>
+          <div class="actual">457</div>
+          <div class="target">350</div>
+          <div class="variance good">131%</div>
+          <div class="status on-track"><span class="pip"></span>Achieved</div>
+        </div>
+        <div class="kpi-row" style="grid-template-columns:2.2fr .8fr .8fr .8fr .8fr;">
+          <div class="metric"><div class="name">Meta CTR</div><div class="desc">Meta · due May 31</div></div>
+          <div class="actual">2.97%</div>
+          <div class="target">1.0%</div>
+          <div class="variance good">297%</div>
+          <div class="status on-track"><span class="pip"></span>Achieved</div>
+        </div>
+        <div class="kpi-row" style="grid-template-columns:2.2fr .8fr .8fr .8fr .8fr;">
+          <div class="metric"><div class="name">Meta impressions</div><div class="desc">Meta · due May 31</div></div>
+          <div class="actual">465,828</div>
+          <div class="target">80,645</div>
+          <div class="variance good">578%</div>
+          <div class="status on-track"><span class="pip"></span>Achieved</div>
+        </div>
+        <div class="kpi-row" style="grid-template-columns:2.2fr .8fr .8fr .8fr .8fr;">
+          <div class="metric"><div class="name">Meta lead-form CPL</div><div class="desc">Counts Meta form leads only — Blended CPL incl. phone leads was $19.43</div></div>
+          <div class="actual">$258.56</div>
+          <div class="target">≤ $95</div>
+          <div class="variance bad">37%</div>
+          <div class="status off-track"><span class="pip"></span>Missed</div>
+        </div>
+        <div class="kpi-row" style="grid-template-columns:2.2fr .8fr .8fr .8fr .8fr;">
+          <div class="metric"><div class="name">Page followers</div><div class="desc">Facebook Page · due Jun 30</div></div>
+          <div class="actual">25</div>
+          <div class="target">55</div>
+          <div class="variance bad">45%</div>
+          <div class="status off-track"><span class="pip"></span>Missed</div>
+        </div>
+      </div>
+      <div class="chrome"><div class="mark"><span class="dot"></span><img class="logo" src="data:image/png;base64,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" alt="DEKSIA" data-wordmark="DEKSIA"></div><span>07 / 09</span></div>
+    </div>
+  </section>
+  <!-- 41 · SPEC SHEET -->
+  <section class="slide">
+    <div class="inner">
+      <div class="meta-row"><span class="eyebrow">Appendix · Data sources</span><span class="sec">Provenance</span></div>
+      <h2 class="h2" style="max-width:80%;font-size:3.7cqw;">Every number in this report is traceable.</h2>
+      <div class="spec-sheet">
+        <div class="spec-row"><div class="k">Meta — ad account 164626062105963</div><div class="v">Pulled directly from Meta’s reporting API. Counts at ad level; CTR/CPC/CPL/reach at account level exactly as Meta computes them — never re-derived.</div></div>
+        <div class="spec-row"><div class="k">Meta coverage</div><div class="v">Jan 1 → Jul 30, 2026 · last pulled Jul 31, 2026</div></div>
+        <div class="spec-row"><div class="k">CallRail — company COM019e03dc…</div><div class="v">Every call and form submission counted by its CallRail-attributed lead source. “Qualified” = CallRail’s own good-lead score.</div></div>
+        <div class="spec-row"><div class="k">CallRail coverage</div><div class="v">May 11 → Jul 30, 2026 · last pulled Jul 31, 2026</div></div>
+        <div class="spec-row"><div class="k">Google Analytics — property 408549881</div><div class="v">Pulled directly from Google Analytics’ reporting API (Green Shield Deck Builders property).</div></div>
+        <div class="spec-row"><div class="k">GA4 coverage</div><div class="v">Jan 1 → Jul 30, 2026 · last pulled Jul 31, 2026</div></div>
+        <div class="spec-row"><div class="k">Facebook Page — 106281511431500</div><div class="v">Pulled from Facebook’s Page Insights (follows, reach, engagement, video views). Coverage Jan 2 → Jul 30, 2026 · last pulled Jul 31, 2026.</div></div>
+        <div class="spec-row"><div class="k">Prepared by</div><div class="v">Deksia · data as reported by each platform · generated July 31, 2026</div></div>
+      </div>
+      <div class="chrome"><div class="mark"><span class="dot"></span><img class="logo" src="data:image/png;base64,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" alt="DEKSIA" data-wordmark="DEKSIA"></div><span>08 / 09</span></div>
+    </div>
+  </section>
+  <!-- 43 · CLOSE -->
+  <section class="slide has-bg dark">
+    <div class="bg"></div>
+    <div class="inner">
+      <div class="meta-row"><span class="eyebrow">Thank you</span><span class="sec">June 2026</span></div>
+      <h2 class="h2" style="max-width:78%;color:#FFFFFF;">Questions? Let’s dig in together.</h2>
+      <p class="body" style="max-width:60%;margin-top:1.4cqw;color:rgba(242,241,236,0.78);">Your Deksia team watches this data daily — every number in this deck comes straight from the platforms, and we’re happy to walk through any of it. July is already pacing ahead on spend and leads.</p>
+      <div class="close-layout">
+        <a href="#" class="cta">Book the July review  →</a>
+        <div class="contact">
+          <strong>Deksia</strong>
+          <span>matthew@deksia.com</span>
+          <span>deksia.com</span>
+        </div>
+      </div>
+      <div class="chrome"><div class="mark"><span class="dot"></span><img class="logo" src="data:image/png;base64,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" alt="DEKSIA" data-wordmark="DEKSIA"></div><span>09 / 09</span></div>
+    </div>
+  </section>
+
+</main>
+</body>
+</html>

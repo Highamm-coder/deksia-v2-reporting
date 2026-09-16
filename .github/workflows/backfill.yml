@@ -1,0 +1,38 @@
+name: deksia-backfill
+
+# Works through backfill jobs queued on the platform (Pipeline health → Freshness →
+# Backfills). Claims up to 3 monthly chunks per run; every 2 hours. Google Ads chunks are
+# limited to 3 per day by the claim function (Explorer-access daily operation cap), and a
+# 429 from any vendor defers that source until the quoted retry time.
+on:
+  schedule:
+    - cron: "17 */2 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: deksia-backfill
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Run backfill chunks
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
+          GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+          GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+          GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
+          GOOGLE_ADS_DEVELOPER_TOKEN: ${{ secrets.GOOGLE_ADS_DEVELOPER_TOKEN }}
+          GOOGLE_ADS_LOGIN_CUSTOMER_ID: ${{ secrets.GOOGLE_ADS_LOGIN_CUSTOMER_ID }}
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+          CALLRAIL_API_KEY: ${{ secrets.CALLRAIL_API_KEY }}
+          BACKFILL_MODE: "1"
+          MAX_CHUNKS: "3"
+        run: node orchestrator/run.mjs

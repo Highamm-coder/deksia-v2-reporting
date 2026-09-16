@@ -1,0 +1,3 @@
+-- 0050_pipeline_health_idle_when_reachable.sql — applied live 2026-09-04. mv_pipeline_health:
+-- a mapping with no rows ever but a reachable probe is 'idle' (connected, nothing to report —
+-- e.g. a paused Google Ads account), not 'no_data'. We never write zeros, so dormant ≠ broken.

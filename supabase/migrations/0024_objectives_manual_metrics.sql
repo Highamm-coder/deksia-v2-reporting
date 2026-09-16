@@ -1,0 +1,11 @@
+-- 0024 (applied live 2026-08-05): client objectives + manual metrics.
+-- client_objectives: business goal + engagement goals pinned atop the client page,
+-- optionally linked to a measurable goals row for a live status pill.
+-- Manual metrics: source='manual' rows in metrics_daily, written by signed-in team
+-- members under RLS policies scoped hard to source='manual' (insert/update/delete);
+-- metric_definitions inserts likewise allowed only for source='manual'. One value
+-- per metric per day (PK); re-log = correction. Provenance: meta.by = who logged it;
+-- source_methods gains a 'manual' row. data_gaps() now ignores 'manual' (sporadic
+-- by nature — a quiet day is not a gap). Full defs via Supabase migration
+-- `objectives_and_manual_metrics`.
+select 1; -- marker

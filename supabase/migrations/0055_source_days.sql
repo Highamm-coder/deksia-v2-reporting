@@ -1,0 +1,3 @@
+-- 0055_source_days.sql — applied live 2026-09-15. source_days(source, metric_date) maintained by ingest_rows();
+-- data_gaps() is now a lookup against it (was a 10 s scan that hit the statement timeout and killed the sentinel).
+-- prune_metrics history branch forgets pruned days.

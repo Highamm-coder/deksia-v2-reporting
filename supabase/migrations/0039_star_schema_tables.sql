@@ -1,0 +1,16 @@
+-- 0039_star_schema_tables.sql — applied live 2026-09-04 via the Supabase MCP; this file is the marker.
+-- Full DDL is in the applied migration of the same name (list_migrations / dashboard).
+--
+-- Modelling pass: metrics_daily re-stored as a star.
+--   0039  series (interned client/source/account/entity/qualifier + grain),
+--         ingest_batches (writer + timestamp), fact_daily (series_id, metric_date,
+--         metric_id, value, batch_id, extra), metric_definitions.metric_id.
+--   0040  ingest_rows() [service_role], upsert_manual_metric() [authenticated],
+--         prune_metrics() re-pointed at fact_daily.
+--   0041  public.metrics_daily becomes a view over the star (same 11 columns); the
+--         6 direct views re-bound, 3 rollups + 12 dependent views recreated verbatim.
+--
+-- Why: the old PK was seven text columns — index 387 MB vs heap 398 MB — and grain
+-- lived in strings. Same 1,655,963 rows: 887 MB → 159 MB. Verified equivalent by a
+-- per-row fingerprint over all 11 columns across 574 client×source×month buckets
+-- (0 differences) before the swap. Old table kept as metrics_daily_old until dropped.
