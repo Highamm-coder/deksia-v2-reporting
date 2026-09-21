@@ -25,7 +25,7 @@ export default async function ClientLayout({ children, params }) {
             <span className={`pill ${client.status === "active" ? "on_track" : "pending"}`}>{client.status}</span>
             {client.timezone && <span className="muted" style={{ fontSize: 13 }}>· {client.timezone}</span>}
           </div>
-          <a href={`/clients/${encodeURIComponent(client.slug)}/settings`} className="btn-ghost">⚙ Settings</a>
+          <a href={`/clients/${encodeURIComponent(client.slug)}/manage`} className="btn-ghost">Manage client</a>
         </div>
         {children}
     </AppShell>
