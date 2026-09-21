@@ -1,12 +1,12 @@
 "use client";
 import { useEffect, useState } from "react";
-import { fmtVal, fmtDelta, fmtMonth, METRIC_LABEL as LABEL, SRC_LABEL, metricLabel } from "../../../lib/format";
+import { fmtVal, fmtDelta, fmtMonth, METRIC_LABEL as LABEL, SRC_LABEL, metricLabel, SOURCE_ORDER as SRC_ORDER } from "../../../lib/format";
 import InfoDot from "../../_components/InfoDot";
 import Sparkline from "../../_components/Sparkline";
 
 // The metrics that matter, in priority order — the default pinned set.
 const PRIORITY = ["ctr", "spend", "cost_per_lead", "impressions", "reach", "leads", "qualified_leads", "mqls", "calls"];
-const SRC_ORDER = ["google_ads", "meta", "ga4", "search_console", "youtube", "callrail", "pages", "manual", "email", "seo", "other"];
+
 // Sources whose published figures keep moving after the day closes. Google credits a conversion
 // to the date of the CLICK and keeps adding to that date for weeks, so the daily run re-reads the
 // trailing 30 days and restates them (GADS_RESTATE_DAYS in orchestrator/run.mjs). Saying so is the
@@ -22,10 +22,39 @@ const prio = (m) => { const i = PRIORITY.indexOf(m); return i === -1 ? 99 : i; }
 // v_client_provenance; renders an ⓘ popover on each section header.
 // `series` (optional): map metric_name → [{m,v}] client-level monthly series (additive
 // metrics only) for sparklines on the highlight cards.
-export default function Performance({ detail, only, showHighlights = true, showTables = true, prov = null, series = null, mtdDays = null }) {
+export default function Performance({ detail, only, showHighlights = true, showTables = true, prov = null, series = null, mtdDays = null, trendKeys = null, slug = "" }) {
   // Deterministic first render (server + first client paint) = default set,
   // then hydrate from localStorage. Avoids hydration mismatch.
   const [pins, setPins] = useState(PRIORITY);
+  // Which metric the trend chart above is currently showing, so the row control can say so.
+  const TREND_KEY = `deksia_trend_metric:${slug}`;
+  const [tracked, setTracked] = useState(null);
+  useEffect(() => {
+    const sync = () => { try { setTracked(localStorage.getItem(TREND_KEY)); } catch {} };
+    sync();
+    window.addEventListener("deksia-trend", sync);
+    window.addEventListener("storage", sync);
+    return () => {
+      window.removeEventListener("deksia-trend", sync);
+      window.removeEventListener("storage", sync);
+    };
+  }, [TREND_KEY]);
+
+  const trendable = trendKeys ? new Set(trendKeys) : null;
+  const track = (k) => {
+    try { localStorage.setItem(TREND_KEY, k); } catch {}
+    setTracked(k);
+    window.dispatchEvent(new CustomEvent("deksia-trend"));
+    const el = document.getElementById("trend");
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+      el.classList.remove("flash-target");
+      void el.offsetWidth;                  // restart the animation if it is already running
+      el.classList.add("flash-target");
+      setTimeout(() => el.classList.remove("flash-target"), 1000);
+    }
+  };
+
   // Hydrate from localStorage, and stay in sync with sibling <Performance> instances on
   // the same page (multiple platform sections) via a custom event + cross-tab storage.
   useEffect(() => {
@@ -68,6 +97,28 @@ export default function Performance({ detail, only, showHighlights = true, showT
     (s[r.account_ext_id] = s[r.account_ext_id] || { label: r.account_label, brand: r.brand, rows: [] }).rows.push(r);
   });
   const perfSources = SRC_ORDER.filter((s) => byAcct[s]);
+
+  // Send a metric to the chart above. Deliberately NOT the same as pinning: a pin says
+  // "this matters", tracking says "I want to watch this over time".
+  const Track = ({ src, m }) => {
+    const k = `${src}|${m}`;
+    const ok = !trendable || trendable.has(k);
+    const on = tracked === k;
+    const multi = Object.keys(byAcct[src] || {}).length > 1;
+    return (
+      <button type="button" disabled={!ok} aria-pressed={on} onClick={() => ok && track(k)}
+        title={!ok ? "Needs a second month of data before it can be tracked"
+          : on ? "Currently tracked in chart above"
+          : `Track in chart above${multi ? " — tracks the combined total across all accounts." : ""}`}
+        style={{ margin: 0, padding: "4px 6px", lineHeight: 1, background: "transparent", border: 0,
+          cursor: ok ? "pointer" : "default", color: on ? "var(--accent)" : ok ? "#c3cbdd" : "var(--line)" }}>
+        <svg width="13" height="13" viewBox="0 0 13 13" aria-hidden focusable="false">
+          <path d="M1 11 L4.5 6.5 L7.5 8.5 L12 2" fill="none" stroke="currentColor"
+            strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+    );
+  };
 
   const Star = ({ m }) => (
     <button type="button" onClick={() => toggle(m)} title={pinned.has(m) ? "Unpin from highlights" : "Pin to highlights"}
@@ -162,7 +213,7 @@ export default function Performance({ detail, only, showHighlights = true, showT
                   const d = fmtDelta(r.pct_change, r.direction);
                   return (
                     <tr key={r.metric_name} style={pinned.has(r.metric_name) ? { background: "rgba(77,163,255,.06)" } : undefined}>
-                      <td><Star m={r.metric_name} /></td>
+                      <td><Star m={r.metric_name} /><Track src={src} m={r.metric_name} /></td>
                       <td title={r.description || ""}>{label(r.metric_name)}</td>
                       <td className="num">{fmtVal(r.cur_value, r.unit)}</td>
                       <td className="num muted">{r.prev_value == null ? "—" : fmtVal(r.prev_value, r.unit)}</td>

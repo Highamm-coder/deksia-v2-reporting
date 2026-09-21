@@ -9,11 +9,12 @@ import SourceTabs from "./SourceTabs";
 import MetricTrend from "./MetricTrend";
 import MonthPicker from "./MonthPicker";
 import { statusSentence, toneColor } from "../../../lib/statusSentence";
+import { SOURCE_ORDER, HEADLINE_METRICS, PRIORITY_METRICS, NOISY_METRIC, HAS_PIXEL_ID } from "../../../lib/format";
 
 export const dynamic = "force-dynamic";
 const num = (v, d = 0) => (v == null ? "—" : Number(v).toLocaleString(undefined, { maximumFractionDigits: d }));
 
-const PLATFORM_ORDER = ["google_ads", "meta", "ga4", "search_console", "youtube", "callrail", "pages", "manual", "email", "seo", "other"];
+const PLATFORM_ORDER = SOURCE_ORDER;
 const PLATFORM_LABEL = { google_ads: "Google Ads", meta: "Meta", ga4: "GA4", search_console: "Search Console", youtube: "YouTube", callrail: "CallRail", pages: "Facebook Pages", manual: "Tracked manually", email: "Email", seo: "SEO", other: "Other" };
 const PAID = new Set(["google_ads", "meta"]);
 
@@ -125,23 +126,49 @@ export default async function ClientDashboard({ params, searchParams }) {
     const k = `${r.source}|${r.metric_name}`;
     const t = (trendAcc[k] = trendAcc[k] || {
       key: k, source: r.source, metric: r.metric_name, unit: r.unit, agg: r.agg,
-      description: r.description || "", byM: {},
+      description: r.description || "", byM: {}, accounts: new Set(),
     });
+    t.accounts.add(r.account_ext_id);
     const cell = (t.byM[ym(r.month_start)] ||= { sum: 0, n: 0 });
     cell.sum += Number(r.value || 0);
     cell.n += 1;
   });
-  const trendSeries = Object.values(trendAcc)
-    .map((t) => ({
-      key: t.key, source: t.source, metric: t.metric, unit: t.unit, agg: t.agg,
-      description: t.description,
-      points: asc.map((m) => {
+  // Rank, so the rail opens on ~12 metrics that matter rather than everything we hold
+  // (Seven Apart has 153, 98 of them Meta's auto-registered action types). Deterministic and
+  // explainable: a goal on it wins, then headline names, then how consistently it reports;
+  // Meta's act_/actval_/cpa_ families and anything carrying a pixel id are pushed down.
+  const goalKeys = new Set((goals || []).map((g) => `${g.source}|${String(g.metric_name).toLowerCase()}`));
+  const spanMonths = Math.max(1, months.length);
+  const rank = (t, covered) =>
+    (goalKeys.has(`${t.source}|${String(t.metric).toLowerCase()}`) ? 100 : 0)
+    + (PRIORITY_METRICS.includes(t.metric) ? 50 : 0)
+    + (HEADLINE_METRICS.includes(t.metric) ? 25 : 0)
+    + (15 * covered) / spanMonths
+    - (NOISY_METRIC.test(t.metric) ? 30 : 0)
+    - (HAS_PIXEL_ID.test(t.metric) ? 100 : 0)
+    - (t.agg === "last" ? 60 : 0);
+
+  const trendAll = Object.values(trendAcc)
+    .map((t) => {
+      const points = asc.map((m) => {
         const c = t.byM[m];
         return { m, v: c ? (t.agg === "avg" ? c.sum / c.n : c.sum) : null };
-      }),
-    }))
-    .filter((t) => t.points.filter((p) => p.v != null).length >= 2)
-    .sort((a, b) => a.source.localeCompare(b.source) || a.metric.localeCompare(b.metric));
+      });
+      const covered = points.filter((p) => p.v != null).length;
+      const firstReal = points.find((p) => p.v != null)?.m ?? null;
+      return {
+        key: t.key, source: t.source, metric: t.metric, unit: t.unit, agg: t.agg,
+        description: t.description, accounts: t.accounts.size, points, covered, firstReal,
+        score: rank(t, covered),
+      };
+    })
+    .filter((t) => t.covered >= 2)
+    .sort((a, b) =>
+      b.score - a.score
+      || SOURCE_ORDER.indexOf(a.source) - SOURCE_ORDER.indexOf(b.source)
+      || a.metric.localeCompare(b.metric));
+  const trendSeries = trendAll.slice(0, 12);
+  const trendKeys = trendAll.map((t) => t.key);
 
   // ---- campaigns + events + computed metrics for the selected month ----
   const campaigns = (campaignsAll || []).filter((r) => ym(r.month_start) === M);
@@ -227,13 +254,13 @@ export default async function ClientDashboard({ params, searchParams }) {
       </div>
 
       {/* pinned highlights across all platforms */}
-      <Performance detail={detail} showTables={false} series={series} mtdDays={mtdDays} />
+      <Performance detail={detail} showTables={false} series={series} mtdDays={mtdDays} trendKeys={trendKeys} slug={slug} />
 
       {/* Deksia-computed formulas (e.g. Blended CPL) — clearly separated from platform numbers */}
       <Derived derived={derived} />
 
       {/* follow one metric month by month */}
-      <MetricTrend series={trendSeries} />
+      <MetricTrend series={trendSeries} all={trendAll} slug={slug} />
 
       {/* one tab per source, plus goals — panels below must stay in this order */}
       <SourceTabs tabs={[
@@ -248,7 +275,7 @@ export default async function ClientDashboard({ params, searchParams }) {
             <h2 style={{ color: "var(--accent)" }}>{PLATFORM_LABEL[p] || p}</h2>
             {has ? (
               <>
-                <Performance detail={detail} only={[p]} showHighlights={false} prov={prov} mtdDays={mtdDays} />
+                <Performance detail={detail} only={[p]} showHighlights={false} prov={prov} mtdDays={mtdDays} trendKeys={trendKeys} slug={slug} />
                 {PAID.has(p) && <Campaigns campaigns={campaigns.filter((c) => c.source === p)} drill={drill.filter((d) => d.source === p)} />}
                 {p === "google_ads" && <Events events={events} />}
                 {p === "callrail" && <LeadSources rows={leadSources} />}

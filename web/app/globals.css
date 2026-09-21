@@ -44,6 +44,11 @@ main section tbody tr:hover td { background:rgba(255,255,255,.65); }
 .chan-quiet { background:var(--panel2); color:var(--muted); }
 .off_track,.missed { background:rgba(217,48,37,.10); color:var(--off); }
 .achieved { background:rgba(54,103,214,.12); color:var(--achieved); }
+/* source badge on the trend chart headline — reads as a label, not a status */
+.pill.src { background:var(--accent-soft); color:var(--accent); text-transform:uppercase; letter-spacing:.04em; }
+/* confirmation when a metric is sent to the chart from a table row */
+@keyframes flashHighlight { from { background:var(--accent-soft); } to { background:transparent; } }
+.flash-target { animation:flashHighlight .9s ease-out; border-radius:12px; }
 .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; max-width:360px; }
 input,button { font:inherit; }
 input,select { background:#fff; color:var(--txt); border:1px solid var(--line);
