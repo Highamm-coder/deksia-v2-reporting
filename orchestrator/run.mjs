@@ -738,6 +738,15 @@ const gPct = (v) => (v == null ? null : Number(v) * 100);
 const GADS_ADDITIVE = new Set(["impressions", "clicks", "spend", "conversions", "conversions_value",
   "all_conversions", "view_through_conversions", "phone_calls", "phone_impressions", "video_views"]);
 
+// Google Ads credits a conversion to the date of the CLICK, then keeps adding to that date
+// for as long as the conversion window runs. A day captured once, the morning after, is only
+// about half final: verified 2026-09-21 on BHS/TOF_demand_maxclicks_AL, where re-pulling
+// 2026-09-01..09-20 moved conversions 866.69 → 1727.33 (Google's own figure) while clicks moved
+// 2863 → 2862 and impressions 87589 → 87587. So the daily run re-asks for a trailing window and
+// upserts it. This costs no extra quota: one GAQL query covers the whole range, so a wider window
+// returns more rows, not more operations. Explicit windows and backfill chunks are pulled as given.
+const GADS_RESTATE_DAYS = Number(process.env.GOOGLE_ADS_RESTATE_DAYS ?? 30);
+
 async function pullGoogleAds(src) {
   if (!GADS_READY) return [];
   const cid = String(src.external_id).replace(/\D/g, "");
@@ -751,7 +760,9 @@ async function pullGoogleAds(src) {
     if (prev && GADS_ADDITIVE.has(metric)) prev.value += row.value; else byKey.set(key, row);
   };
   let splitsSkipped = false;
-  const where = (extra) => `WHERE segments.date BETWEEN '${START}' AND '${END}' AND ${extra}`;
+  // daily run: trailing restatement window (see GADS_RESTATE_DAYS); otherwise exactly as given
+  const gStart = (!EXPLICIT_WINDOW && !BACKFILL_MODE) ? etDate(-1 - GADS_RESTATE_DAYS) : START;
+  const where = (extra) => `WHERE segments.date BETWEEN '${gStart}' AND '${END}' AND ${extra}`;
   const q = async (gaql) => gadsQuery(cid, gaql, { selfLogin: true });
   const guarded = async (label, fn) => { try { await fn(); } catch (e) { console.warn(`  google_ads ${src.slug}/${cid} ${label} skipped: ${e.message.slice(0, 160)}`); } };
 
