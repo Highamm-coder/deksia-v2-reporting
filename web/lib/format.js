@@ -40,3 +40,27 @@ export function fmtMonth(s) {
   const [y, m] = String(s).split("-");
   return new Date(Number(y), Number(m) - 1, 1).toLocaleString(undefined, { month: "short", year: "numeric" });
 }
+
+// ---- shared labels -------------------------------------------------------------------
+// Metric and source display names. Kept here, not in a component, because the metric tables,
+// the trend chart and the tabs all render the same names and had begun to drift.
+export const SRC_LABEL = {
+  google_ads: "Google Ads", meta: "Meta", ga4: "GA4", search_console: "Search Console",
+  youtube: "YouTube", callrail: "CallRail", pages: "Facebook Pages",
+  manual: "Tracked manually", email: "Email", seo: "SEO", other: "Other",
+};
+export const METRIC_LABEL = {
+  ctr: "CTR", spend: "Spend", cost_per_lead: "CPL", impressions: "Impressions", reach: "Reach",
+  leads: "Leads", qualified_leads: "Qualified MQLs", mqls: "MQLs", calls: "Calls", forms: "Forms",
+  clicks: "Clicks", link_clicks: "Link clicks", cpc: "CPC", conversions: "Conversions",
+  conversion_action: "Conversion action", sessions: "Sessions", engaged_sessions: "Engaged sessions",
+  key_events: "Key events", users: "Users", new_users: "New users", engagement: "Engagement",
+  followers: "Followers", video_views: "Video views", position: "Avg. position",
+  watch_minutes: "Watch time (min)", avg_view_duration_sec: "Avg. view duration",
+  subscribers_gained: "Subscribers gained", subscribers_lost: "Subscribers lost",
+  likes: "Likes", comments: "Comments", shares: "Shares",
+  subscribers_total: "Subscribers (lifetime, snapshot)", views_total: "Views (lifetime, snapshot)",
+  videos_total: "Videos (snapshot)",
+};
+export const metricLabel = (m) => METRIC_LABEL[m] || String(m || "").replace(/_/g, " ");
+export const sourceLabel = (s) => SRC_LABEL[s] || s;

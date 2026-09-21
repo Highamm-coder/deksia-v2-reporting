@@ -1,23 +1,11 @@
 "use client";
 import { useEffect, useState } from "react";
-import { fmtVal, fmtDelta, fmtMonth } from "../../../lib/format";
+import { fmtVal, fmtDelta, fmtMonth, METRIC_LABEL as LABEL, SRC_LABEL, metricLabel } from "../../../lib/format";
 import InfoDot from "../../_components/InfoDot";
 import Sparkline from "../../_components/Sparkline";
 
 // The metrics that matter, in priority order — the default pinned set.
 const PRIORITY = ["ctr", "spend", "cost_per_lead", "impressions", "reach", "leads", "qualified_leads", "mqls", "calls"];
-const LABEL = {
-  ctr: "CTR", spend: "Spend", cost_per_lead: "CPL", impressions: "Impressions", reach: "Reach",
-  leads: "Leads", qualified_leads: "Qualified MQLs", mqls: "MQLs", calls: "Calls", forms: "Forms",
-  clicks: "Clicks", link_clicks: "Link clicks", cpc: "CPC", conversions: "Conversions",
-  conversion_action: "Conversion action", sessions: "Sessions", engaged_sessions: "Engaged sessions",
-  key_events: "Key events", users: "Users", new_users: "New users", engagement: "Engagement",
-  followers: "Followers", video_views: "Video views", position: "Avg. position",
-  watch_minutes: "Watch time (min)", avg_view_duration_sec: "Avg. view duration", subscribers_gained: "Subscribers gained",
-  subscribers_lost: "Subscribers lost", likes: "Likes", comments: "Comments", shares: "Shares",
-  subscribers_total: "Subscribers (lifetime, snapshot)", views_total: "Views (lifetime, snapshot)", videos_total: "Videos (snapshot)",
-};
-const SRC_LABEL = { google_ads: "Google Ads", meta: "Meta", ga4: "GA4", search_console: "Search Console", youtube: "YouTube", callrail: "CallRail", pages: "Facebook Pages", manual: "Tracked manually", email: "Email", seo: "SEO", other: "Other" };
 const SRC_ORDER = ["google_ads", "meta", "ga4", "search_console", "youtube", "callrail", "pages", "manual", "email", "seo", "other"];
 // Sources whose published figures keep moving after the day closes. Google credits a conversion
 // to the date of the CLICK and keeps adding to that date for weeks, so the daily run re-reads the
@@ -27,7 +15,7 @@ const RESTATES = {
   google_ads: "Conversions are credited to the date of the click and keep arriving for weeks, so the last 30 days are re-read every day and can still move.",
 };
 const LS_KEY = "deksia_pinned_metrics";
-const label = (m) => LABEL[m] || m.replace(/_/g, " ");
+const label = metricLabel;
 const prio = (m) => { const i = PRIORITY.indexOf(m); return i === -1 ? 99 : i; };
 
 // `prov` (optional): map keyed `${source}|${account_ext_id}` → provenance row from

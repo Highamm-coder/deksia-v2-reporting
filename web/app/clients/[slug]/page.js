@@ -5,7 +5,8 @@ import Derived from "./Derived";
 import Events from "./Events";
 import LeadSources from "./LeadSources";
 import TopQueries from "./TopQueries";
-import PlatformNav from "./PlatformNav";
+import SourceTabs from "./SourceTabs";
+import MetricTrend from "./MetricTrend";
 import MonthPicker from "./MonthPicker";
 import { statusSentence, toneColor } from "../../../lib/statusSentence";
 
@@ -113,6 +114,35 @@ export default async function ClientDashboard({ params, searchParams }) {
     series[met] = asc.map((m) => ({ m, v: byM[m] ?? null }));
   });
 
+  // ---- per-SOURCE monthly series for the trend chart ----------------------------------
+  // Deliberately not keyed by metric alone: "clicks" exists under Google Ads, Meta, GA4,
+  // Pages and Search Console, and adding them would invent a number no platform reported.
+  // Rates are averaged across a source's accounts, counts are summed — the same rule the
+  // monthly view applies. A month with no row stays null so the chart can leave a gap.
+  const trendAcc = {};
+  (monthly || []).forEach((r) => {
+    if (r.metric_name === "conversion_action") return;
+    const k = `${r.source}|${r.metric_name}`;
+    const t = (trendAcc[k] = trendAcc[k] || {
+      key: k, source: r.source, metric: r.metric_name, unit: r.unit, agg: r.agg,
+      description: r.description || "", byM: {},
+    });
+    const cell = (t.byM[ym(r.month_start)] ||= { sum: 0, n: 0 });
+    cell.sum += Number(r.value || 0);
+    cell.n += 1;
+  });
+  const trendSeries = Object.values(trendAcc)
+    .map((t) => ({
+      key: t.key, source: t.source, metric: t.metric, unit: t.unit, agg: t.agg,
+      description: t.description,
+      points: asc.map((m) => {
+        const c = t.byM[m];
+        return { m, v: c ? (t.agg === "avg" ? c.sum / c.n : c.sum) : null };
+      }),
+    }))
+    .filter((t) => t.points.filter((p) => p.v != null).length >= 2)
+    .sort((a, b) => a.source.localeCompare(b.source) || a.metric.localeCompare(b.metric));
+
   // ---- campaigns + events + computed metrics for the selected month ----
   const campaigns = (campaignsAll || []).filter((r) => ym(r.month_start) === M);
   const drill = (drillAll || []).filter((r) => ym(r.month_start) === M);
@@ -202,9 +232,15 @@ export default async function ClientDashboard({ params, searchParams }) {
       {/* Deksia-computed formulas (e.g. Blended CPL) — clearly separated from platform numbers */}
       <Derived derived={derived} />
 
-      <PlatformNav platforms={platforms} />
+      {/* follow one metric month by month */}
+      <MetricTrend series={trendSeries} />
 
-      {platforms.map((p) => {
+      {/* one tab per source, plus goals — panels below must stay in this order */}
+      <SourceTabs tabs={[
+        ...platforms.map((p) => ({ key: p, label: PLATFORM_LABEL[p] || p, hasData: withData.has(p) })),
+        { key: "goals", label: `Goals (${goals?.length ?? 0})`, hasData: (goals?.length ?? 0) > 0 },
+      ]}>
+      {[...platforms.map((p) => {
         const has = withData.has(p);
         const h = healthBy[p];
         return (
@@ -231,9 +267,9 @@ export default async function ClientDashboard({ params, searchParams }) {
             )}
           </section>
         );
-      })}
+      }),
 
-      <section id="goals" style={anchor}>
+      <section key="goals" id="goals" style={anchor}>
         <h2 style={{ color: "var(--accent)" }}>Goals ({goals?.length ?? 0}){" "}
           <a href={`/clients/${encodeURIComponent(slug)}/goals`} style={{ fontSize: 12, fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>· manage →</a>
         </h2>
@@ -255,7 +291,9 @@ export default async function ClientDashboard({ params, searchParams }) {
             </tbody>
           </table>
         ) : <p className="muted">No goals set for this client.</p>}
-      </section>
+      </section>,
+      ]}
+      </SourceTabs>
 
       <p className="muted" style={{ fontSize: 11, marginTop: 18 }}>
         Agg-aware (counts summed, rates as the platform reports them). Pin ★ any metric to add it to
