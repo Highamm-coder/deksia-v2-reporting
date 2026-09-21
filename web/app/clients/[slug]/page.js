@@ -262,7 +262,7 @@ export default async function ClientDashboard({ params, searchParams }) {
                 {h && <span className={`pill ${h.sync_status}`}>{h.sync_status?.replace("_", " ")}</span>}
                 {(() => { const st = (statusRows || []).find((x) => x.source === p); const sent = statusSentence(st || (h ? { ...h, source: p } : null));
                   return <span style={{ fontSize: 12, color: toneColor[sent.tone] }}>{sent.text}</span>; })()}
-                <a href={`/clients/${encodeURIComponent(slug)}/settings`} style={{ fontSize: 12 }}>source status →</a>
+                <a href={`/clients/${encodeURIComponent(slug)}/manage#settings`} style={{ fontSize: 12 }}>source status →</a>
               </div>
             )}
           </section>
@@ -271,7 +271,7 @@ export default async function ClientDashboard({ params, searchParams }) {
 
       <section key="goals" id="goals" style={anchor}>
         <h2 style={{ color: "var(--accent)" }}>Goals ({goals?.length ?? 0}){" "}
-          <a href={`/clients/${encodeURIComponent(slug)}/goals`} style={{ fontSize: 12, fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>· manage →</a>
+          <a href={`/clients/${encodeURIComponent(slug)}/manage#goals`} style={{ fontSize: 12, fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>· manage →</a>
         </h2>
         {goals?.length ? (
           <table>

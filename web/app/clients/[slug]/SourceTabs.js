@@ -8,7 +8,7 @@ import { useEffect, useState } from "react";
 // Panels are rendered by the server and passed in as children, in the same order as `tabs`;
 // only the active one is mounted. A tab with no data for the month is still shown — "no Meta
 // this month" is an answer, and hiding it would look like the source was never connected.
-export default function SourceTabs({ tabs, children }) {
+export default function SourceTabs({ tabs, children, label = "Data source" }) {
   const panels = Array.isArray(children) ? children : [children];
   const first = tabs.find((t) => t.hasData)?.key || tabs[0]?.key;
   const [active, setActive] = useState(first);
@@ -33,7 +33,7 @@ export default function SourceTabs({ tabs, children }) {
 
   return (
     <>
-      <div role="tablist" aria-label="Data source" style={{
+      <div role="tablist" aria-label={label} style={{
         position: "sticky", top: 0, zIndex: 4, background: "var(--panel)",
         padding: "10px 0 8px", margin: "10px 0 0",
         display: "flex", gap: 8, flexWrap: "wrap", borderBottom: "1px solid var(--line)",
