@@ -1,4 +1,5 @@
 import { getSupabaseServer } from "../../../lib/supabase/server";
+import { requireData } from "../../../lib/readAll.mjs";
 import AppShell from "../../_components/AppShell";
 
 export const dynamic = "force-dynamic";
@@ -9,8 +10,7 @@ export const dynamic = "force-dynamic";
 export default async function ClientLayout({ children, params }) {
   const slug = decodeURIComponent(params.slug);
   const supabase = getSupabaseServer();
-  const { data: client } = await supabase
-    .from("clients").select("id, slug, name, status, timezone").eq("slug", slug).maybeSingle();
+  const client = await requireData(supabase.from("clients").select("id, slug, name, status, timezone").eq("slug", slug).maybeSingle(), "Client");
 
   if (!client) {
     return (<AppShell><p className="muted"><a href="/clients">← Clients</a></p><p>Client not found: {slug}</p></AppShell>);

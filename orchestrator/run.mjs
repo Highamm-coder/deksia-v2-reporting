@@ -24,6 +24,8 @@
 //   ONLY_SOURCE             optional source name — pull that source only
 //   WRITE_BREAKOUTS=1       force Meta brk: breakouts even outside the 90-day horizon
 
+import { sameAccount } from "./lib/accounts.mjs";
+
 const {
   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, INGEST_TOKEN,
   CALLRAIL_API_KEY, META_ACCESS_TOKEN,
@@ -60,7 +62,6 @@ const ONLY_ACCOUNT = (process.env.ONLY_ACCOUNT || "").trim();
 // Was the window given explicitly (backfill / re-pull) or is this the daily "yesterday" run?
 // Late-publishing sources (Search Console ~3 days) shift the daily window back by their lag.
 const EXPLICIT_WINDOW = !!(process.env.RUN_START || process.env.RUN_DATE);
-const sameId = (a, b) => String(a).replace(/\D/g, "") === String(b).replace(/\D/g, "") && String(a) !== "";
 
 // Meta 'brk:' breakouts (placement / demo / device) are non-additive drill-down that
 // prune_metrics() deletes past BRK_RETENTION_DAYS. Writing them for a window that is
@@ -1359,7 +1360,7 @@ async function main() {
     if (ONLY_SLUG || ONLY_SOURCE || ONLY_ACCOUNT) {
       allMappings = allMappings.filter((m) => (!ONLY_SLUG || m.clients.slug === ONLY_SLUG)
         && (!ONLY_SOURCE || m.source === ONLY_SOURCE)
-        && (!ONLY_ACCOUNT || sameId(m.external_id, ONLY_ACCOUNT) || String(m.external_id) === ONLY_ACCOUNT));
+        && (!ONLY_ACCOUNT || sameAccount(m.source, m.external_id, ONLY_ACCOUNT)));
       console.log(`Probe scope: ${allMappings.length} mapping(s) (slug=${ONLY_SLUG || "*"} source=${ONLY_SOURCE || "*"} account=${ONLY_ACCOUNT || "*"})`);
     }
     // Meta counts every call against one app-level limit; probe gently.

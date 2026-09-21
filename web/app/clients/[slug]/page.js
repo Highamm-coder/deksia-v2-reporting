@@ -7,6 +7,8 @@ import LeadSources from "./LeadSources";
 import TopQueries from "./TopQueries";
 import PlatformNav from "./PlatformNav";
 import MonthPicker from "./MonthPicker";
+import { readAll, requireData } from "../../../lib/readAll.mjs";
+import { ym, metricKey, shiftMonth, reportingDate, comparisonWindow, compareRows, buildSeries, compareDerived } from "../../../lib/reporting.mjs";
 import { statusSentence, toneColor } from "../../../lib/statusSentence";
 
 export const dynamic = "force-dynamic";
@@ -16,117 +18,60 @@ const PLATFORM_ORDER = ["google_ads", "meta", "ga4", "search_console", "youtube"
 const PLATFORM_LABEL = { google_ads: "Google Ads", meta: "Meta", ga4: "GA4", search_console: "Search Console", youtube: "YouTube", callrail: "CallRail", pages: "Facebook Pages", manual: "Tracked manually", email: "Email", seo: "SEO", other: "Other" };
 const PAID = new Set(["google_ads", "meta"]);
 
-const ym = (d) => String(d).slice(0, 7);
-const prevYm = (m) => {
-  const [y, mo] = m.split("-").map(Number);
-  return mo === 1 ? `${y - 1}-12` : `${y}-${String(mo - 1).padStart(2, "0")}`;
-};
-const daysInMonth = (m) => {
-  const [y, mo] = m.split("-").map(Number);
-  return new Date(y, mo, 0).getDate();
-};
-const etNowYm = () => {
-  const p = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit" }).format(new Date());
-  return p.slice(0, 7);
-};
-const pct = (cur, prev) => (prev != null && Number(prev) !== 0 ? (Number(cur) - Number(prev)) / Math.abs(Number(prev)) : null);
-
 export default async function ClientDashboard({ params, searchParams }) {
   const slug = decodeURIComponent(params.slug);
   const supabase = getSupabaseServer();
-  const [{ data: monthly }, { data: campaignsAll }, { data: goals }, { data: provRows }, { data: derivedAll }, { data: health }, { data: eventsAll }, { data: objectivesAll }, { data: drillAll }, { data: leadSrcAll }, { data: statusRows }, { data: queriesAll }, { data: scMappings }] = await Promise.all([ 
-    supabase.from("v_client_monthly").select("*").eq("slug", slug),
-    supabase.from("v_client_campaigns_all").select("*").eq("slug", slug),
-    supabase.from("v_goal_scoreboard").select("*").eq("slug", slug).order("metric_name"),
-    supabase.from("v_client_provenance").select("*").eq("slug", slug),
-    supabase.from("v_client_derived_all").select("*").eq("slug", slug).order("label"),
-    supabase.from("v_pipeline_health").select("*").eq("slug", slug).order("source"),
-    supabase.from("v_client_events").select("*").eq("slug", slug),
-    supabase.from("client_objectives").select("*, clients!inner(slug)").eq("clients.slug", slug).eq("active", true).order("kind").order("position").order("created_at"),
-    supabase.from("v_client_campaign_drill").select("*").eq("slug", slug),
-    supabase.from("v_client_lead_sources").select("*").eq("slug", slug),
-    supabase.from("v_client_source_status").select("*").eq("slug", slug),
-    supabase.from("v_client_search_queries").select("*").eq("slug", slug),
-    supabase.from("client_sources").select("source, params, clients!inner(slug)").eq("clients.slug", slug).eq("source", "search_console").eq("active", true),
+  const today = reportingDate();
+  // Month discovery transfers only month metadata; detail is limited to the selected period.
+  const monthRows = await readAll(() => supabase.from("v_client_monthly")
+    .select("month_start, source, account_ext_id, metric_name", { count: "exact" }).eq("slug", slug)
+    .order("month_start").order("source").order("account_ext_id").order("metric_name"), "Reporting months");
+  const months = [...new Set(monthRows.map(r => ym(r.month_start)))].sort().reverse();
+  const req = typeof searchParams?.month === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(searchParams.month) ? searchParams.month : null;
+  const M = req && months.includes(req) ? req : months[0] || ym(today);
+  const window = comparisonWindow(M, today);
+  const P = window.previous;
+  const isMtd = window.current;
+  const mtdDays = isMtd ? window.currentDays : null;
+  const periodRows = (view, start = M, end = M, keys = []) => readAll(() => {
+    let query = supabase.from(view).select("*", { count: "exact" }).eq("slug", slug)
+      .gte("month_start", `${start}-01`).lt("month_start", `${shiftMonth(end, 1)}-01`).order("month_start");
+    for (const key of keys) query = query.order(key);
+    return query;
+  }, view);
+  const [monthly, campaigns, goals, provRows, derivedAll, health, events, objectivesAll, drill, leadSources, statusRows, searchQueries, mappings] = await Promise.all([
+    periodRows("v_client_monthly", shiftMonth(M, -11), M, ["source", "account_ext_id", "metric_name"]),
+    periodRows("v_client_campaigns_all", M, M, ["source", "account_ext_id", "campaign"]),
+    readAll(() => supabase.from("v_goal_scoreboard").select("*", { count: "exact" }).eq("slug", slug).order("goal_id"), "Goals"),
+    requireData(supabase.from("v_client_provenance").select("*").eq("slug", slug), "Provenance"),
+    periodRows("v_client_derived_all", M, M, ["derived_id"]),
+    requireData(supabase.from("v_pipeline_health").select("*").eq("slug", slug).order("source"), "Source health"),
+    periodRows("v_client_events", M, M, ["account_ext_id", "campaign", "event"]),
+    requireData(supabase.from("client_objectives").select("*, clients!inner(slug)").eq("clients.slug", slug).eq("active", true).order("kind").order("position").order("created_at"), "Objectives"),
+    periodRows("v_client_campaign_drill", M, M, ["source", "account_ext_id", "campaign", "ad_set", "ad"]),
+    periodRows("v_client_lead_sources", M, M, ["channel", "lead_source"]),
+    requireData(supabase.from("v_client_source_status").select("*").eq("slug", slug), "Source status"),
+    periodRows("v_client_search_queries", M, M, ["account_ext_id", "query"]),
+    requireData(supabase.from("client_sources").select("source, external_id, active, params, clients!inner(slug)").eq("clients.slug", slug), "Account mappings"),
   ]);
   const objectives = objectivesAll || [];
-  const goalById = {};
-  (goals || []).forEach((g) => { goalById[g.goal_id] = g; });
-
-  // ---- month selection: ?month=YYYY-MM, default = latest month with data ----
-  const months = [...new Set((monthly || []).map((r) => ym(r.month_start)))].sort().reverse();
-  const req = typeof searchParams?.month === "string" && /^\d{4}-\d{2}$/.test(searchParams.month) ? searchParams.month : null;
-  const M = req && months.includes(req) ? req : months[0];
-  const P = M ? prevYm(M) : null;
-
-  // ---- MTD? then compare like-for-like ----
-  // An in-progress month must not be compared to a FULL prior month; use the same
-  // number of elapsed days from the prior month instead.
-  const isMtd = M === etNowYm();
-  const elapsed = isMtd
-    ? Math.max(0, ...(monthly || []).filter((r) => ym(r.month_start) === M).map((r) => Number(r.day_count || 0)))
-    : null;
-  let prevPartial = null;
-  if (isMtd && elapsed > 0 && P) {
-    const { data } = await supabase.rpc("client_prev_partial", {
-      p_slug: slug, p_prev_month: P, p_days: elapsed,
-    });
-    prevPartial = data || [];
+  const goalById = Object.fromEntries(goals.map(g => [g.goal_id, g]));
+  let current = monthly.filter(r => ym(r.month_start) === M);
+  let previous = monthly.filter(r => ym(r.month_start) === P);
+  if (isMtd && mtdDays > 0) {
+    // The existing RPC aggregates the first N calendar days of the supplied month.
+    // Read BOTH periods through it, including month-end clamping for shorter months.
+    const [curPartial, prevPartial] = await Promise.all([M, P].map(month =>
+      readAll(() => supabase.rpc("client_prev_partial", { p_slug: slug, p_prev_month: month, p_days: mtdDays }, { count: "exact" })
+        .order("source").order("account_ext_id").order("metric_name"), "Period comparison")));
+    const metadata = new Map(current.map(r => [metricKey(r), r]));
+    current = curPartial.map(r => ({ ...metadata.get(metricKey(r)), ...r, month_start: `${M}-01` }));
+    previous = prevPartial.map(r => ({ ...r, month_start: `${P}-01` }));
   }
-
-  // ---- build the report rows (selected vs previous month) in the shape the tables use ----
-  const key = (r) => `${r.source}|${r.account_ext_id}|${r.metric_name}`;
-  const prevBy = {};
-  if (prevPartial) {
-    prevPartial.forEach((r) => { prevBy[key(r)] = { value: r.value, day_count: r.day_count, month_start: `${P}-01` }; });
-  } else {
-    (monthly || []).forEach((r) => { if (ym(r.month_start) === P) prevBy[key(r)] = r; });
-  }
-  // conversion_action is shown named in the Events table, not as a meaningless sum row
-  const detail = (monthly || []).filter((r) => ym(r.month_start) === M && r.metric_name !== "conversion_action").map((r) => {
-    const p = prevBy[key(r)];
-    return {
-      ...r,
-      cur_month: r.month_start, cur_value: r.value, cur_days: r.day_count,
-      prev_month: p?.month_start ?? null, prev_value: p?.value ?? null, prev_days: p?.day_count ?? null,
-      pct_change: pct(r.value, p?.value),
-    };
-  });
-
-  // ---- client-level monthly series for sparklines (additive metrics only) ----
-  const sums = {};
-  (monthly || []).forEach((r) => {
-    if (r.agg !== "sum") return;
-    ((sums[r.metric_name] = sums[r.metric_name] || {})[ym(r.month_start)] ||= 0);
-    sums[r.metric_name][ym(r.month_start)] += Number(r.value || 0);
-  });
-  const asc = months.slice().reverse();
-  const series = {};
-  Object.entries(sums).forEach(([met, byM]) => {
-    series[met] = asc.map((m) => ({ m, v: byM[m] ?? null }));
-  });
-
-  // ---- campaigns + events + computed metrics for the selected month ----
-  const campaigns = (campaignsAll || []).filter((r) => ym(r.month_start) === M);
-  const drill = (drillAll || []).filter((r) => ym(r.month_start) === M);
-  const events = (eventsAll || []).filter((r) => ym(r.month_start) === M);
-  const leadSources = (leadSrcAll || []).filter((r) => ym(r.month_start) === M);
-  const searchQueries = (queriesAll || []).filter((r) => ym(r.month_start) === M);
-  const scFullDepth = (scMappings || []).some((s) => s.params?.metric_depth === "full");
-  const derived = (derivedAll || [])
-    .filter((r) => ym(r.month_start) === M)
-    .map((r) => {
-      const p = (derivedAll || []).find((x) => x.derived_id === r.derived_id && ym(x.month_start) === P);
-      return {
-        ...r,
-        cur_month: r.month_start, cur_num: r.num, cur_den: r.den, cur_value: r.value,
-        prev_month: p?.month_start ?? null, prev_value: p?.value ?? null,
-        pct_change: pct(r.value, p?.value),
-      };
-    });
-
-  // ---- MTD flag: selected month is the current (incomplete) calendar month ----
-  const mtdDays = elapsed;
+  const detail = compareRows(current, previous, window);
+  const series = buildSeries(monthly, M, ym(today));
+  const scFullDepth = mappings.some(s => s.source === "search_console" && s.active && s.params?.metric_depth === "full");
+  const derived = derivedAll.map(r => ({ ...compareDerived(r, detail, mappings), cur_month: r.month_start }));
 
   // ---- platforms: everything mapped OR with data; explicit empty state for gaps ----
   const withData = new Set(detail.map((r) => r.source));
@@ -177,17 +122,18 @@ export default async function ClientDashboard({ params, searchParams }) {
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", margin: "2px 0 4px" }}>
         <MonthPicker months={months} />
         {isMtd && (
-          <span className="pill mtd" title={`Month in progress. MoM compares these ${mtdDays} days against the first ${mtdDays} days of the prior month — like for like.`}>
-            MTD · {mtdDays} day{mtdDays === 1 ? "" : "s"} · vs same {mtdDays} days last month
+          <span className="pill mtd" title={`Comparison window: ${M}-01 through day ${mtdDays}; same calendar days in ${P}. Comparisons require complete coverage.`}>
+            MTD · {mtdDays > 0 ? `first ${mtdDays} closed days vs ${P}` : "awaiting the first closed day"}
           </span>
         )}
       </div>
 
       {/* pinned highlights across all platforms */}
-      <Performance detail={detail} showTables={false} series={series} mtdDays={mtdDays} />
+      <Performance detail={detail} showTables={false} series={series} prov={prov} mtdDays={mtdDays} />
 
       {/* Deksia-computed formulas (e.g. Blended CPL) — clearly separated from platform numbers */}
       <Derived derived={derived} />
+      <p className="muted">Comparisons require complete coverage in both periods. Trend lines show complete months only.</p>
 
       <PlatformNav platforms={platforms} />
 
@@ -225,7 +171,7 @@ export default async function ClientDashboard({ params, searchParams }) {
           <a href={`/clients/${encodeURIComponent(slug)}/goals`} style={{ fontSize: 12, fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>· manage →</a>
         </h2>
         {goals?.length ? (
-          <table>
+          <div className="table-scroll" tabIndex={0} role="region" aria-label="Scrollable report table"><table>
             <thead><tr><th>Source</th><th>Metric</th><th className="num">Current</th><th className="num">Target</th><th className="num">%</th><th>Status</th><th className="num">Days left</th></tr></thead>
             <tbody>
               {goals.map((g) => (
@@ -240,7 +186,7 @@ export default async function ClientDashboard({ params, searchParams }) {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         ) : <p className="muted">No goals set for this client.</p>}
       </section>
 

@@ -1,4 +1,5 @@
 import { getSupabaseServer } from "../../lib/supabase/server";
+import { requireData } from "../../lib/readAll.mjs";
 import AppShell from "../_components/AppShell";
 
 export const dynamic = "force-dynamic";
@@ -7,13 +8,12 @@ export const dynamic = "force-dynamic";
 // dashboard. Triage numbers live on the Scoreboard and each client's page.
 export default async function Clients() {
   const supabase = getSupabaseServer();
-  const { data: clients } = await supabase
-    .from("clients").select("slug, name, status").order("status").order("slug");
+  const clients = await requireData(supabase.from("clients").select("slug, name, status").order("status").order("slug"), "Clients");
 
   return (
     <AppShell>
       <h1 style={{ fontSize: 24, margin: "0 0 12px" }}>Clients</h1>
-      <table>
+      <div className="table-scroll" tabIndex={0} role="region" aria-label="Scrollable report table"><table>
         <thead><tr><th>Client</th><th>Status</th><th></th></tr></thead>
         <tbody>
           {(clients || []).map((c) => (
@@ -25,7 +25,7 @@ export default async function Clients() {
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
     </AppShell>
   );
 }

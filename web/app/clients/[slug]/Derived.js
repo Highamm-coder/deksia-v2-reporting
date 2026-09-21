@@ -29,7 +29,7 @@ export default function Derived({ derived }) {
                   ["Basis", "Computed by Deksia from platform-reported values — this number does not appear in any platform."],
                 ]} />
               </div>
-              <div className={`d delta ${d.cls}`}>{d.text} <span className="muted" style={{ fontWeight: 400 }}>MoM</span></div>
+              <div className={`d delta ${d.cls}`}>{r.comparison_note || <>{d.text} <span className="muted" style={{ fontWeight: 400 }}>MoM</span></>}</div>
             </div>
           );
         })}
