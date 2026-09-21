@@ -62,5 +62,15 @@ export const METRIC_LABEL = {
   subscribers_total: "Subscribers (lifetime, snapshot)", views_total: "Views (lifetime, snapshot)",
   videos_total: "Videos (snapshot)",
 };
+// The order sources appear in, everywhere: tabs, tables, the trend rail. A manager's mental
+// map of "Google Ads is always first" should hold on every surface.
+export const SOURCE_ORDER = ["google_ads", "meta", "ga4", "search_console", "youtube", "callrail", "pages", "manual", "email", "seo", "other"];
+
+// Metrics an account manager leads with, and the Meta families that are auto-registered noise.
+export const HEADLINE_METRICS = ["spend", "clicks", "conversions", "leads", "mqls", "sessions", "calls", "impressions"];
+export const PRIORITY_METRICS = ["ctr", "spend", "cost_per_lead", "impressions", "reach", "leads", "qualified_leads", "mqls", "calls"];
+export const NOISY_METRIC = /^(act_|actval_|cpa_)/;
+export const HAS_PIXEL_ID = /[0-9]{8,}/;
+
 export const metricLabel = (m) => METRIC_LABEL[m] || String(m || "").replace(/_/g, " ");
 export const sourceLabel = (s) => SRC_LABEL[s] || s;
