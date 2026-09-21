@@ -5,8 +5,10 @@ import { fmtVal, fmtMonth } from "../../../lib/format";
 const CH_LABEL = { paid: "Paid", organic: "Organic", direct: "Direct / website",
   referral: "Referral", offline: "Offline", other: "Other", unclassified: "Unclassified" };
 const CH_ORDER = ["paid", "organic", "direct", "referral", "offline", "other", "unclassified"];
-const CH_PILL = { paid: "achieved", organic: "on_track", direct: "idle",
-  referral: "idle", offline: "pending", other: "pending", unclassified: "stale" };
+// Channel categories get their own neutral pills — see globals.css. Reusing the status
+// pills made "Unclassified" look like a pipeline warning.
+const CH_PILL = { paid: "chan", organic: "chan", direct: "chan",
+  referral: "chan", offline: "chan", other: "chan-quiet", unclassified: "chan-quiet" };
 const n = (v) => (v == null ? 0 : Number(v));
 
 // CallRail leads split by channel — CallRail attributes every call/form to a lead
@@ -30,7 +32,7 @@ export default function LeadSources({ rows }) {
     <>
       <h2>Leads by channel <span className="muted" style={{ textTransform: "none", letterSpacing: 0 }}>
         · {fmtMonth(list[0].month_start)} · CallRail lead source · click a channel for its sources</span></h2>
-      <table>
+      <div className="tablewrap"><table>
         <thead><tr>
           <th style={{ width: 20 }}></th><th>Channel</th>
           <th className="num">MQLs</th><th className="num">Share</th>
@@ -41,7 +43,10 @@ export default function LeadSources({ rows }) {
             const d = byCh[c];
             const isOpen = !!open[c];
             return [
-              <tr key={c} onClick={() => setOpen((o) => ({ ...o, [c]: !o[c] }))} style={{ cursor: "pointer" }}>
+              <tr key={c} className="expandable" role="button" tabIndex={0} aria-expanded={isOpen}
+                onClick={() => setOpen((o) => ({ ...o, [c]: !o[c] }))}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen((o) => ({ ...o, [c]: !o[c] })); } }}
+                style={{ cursor: "pointer" }}>
                 <td className="muted" style={{ fontSize: 11 }}>{isOpen ? "▾" : "▸"}</td>
                 <td><span className={`pill ${CH_PILL[c]}`}>{CH_LABEL[c] || c}</span>
                   <span className="muted" style={{ fontSize: 11 }}> · {d.sources.length} source{d.sources.length === 1 ? "" : "s"}</span></td>
@@ -70,7 +75,7 @@ export default function LeadSources({ rows }) {
             <td colSpan={4}></td>
           </tr>
         </tbody>
-      </table>
+      </table></div>
       {byCh.unclassified && (
         <p className="muted" style={{ fontSize: 11, marginTop: 6 }}>
           “Unclassified” = lead sources with no channel rule yet. Their MQLs are counted, just not

@@ -17,6 +17,9 @@ export default function Derived({ derived }) {
       <div className="kpis">
         {rows.map((r) => {
           // for cost-type metrics down is good; otherwise up is good
+          // A $ formula is assumed to be a cost (lower is better), which is what the unit
+          // dropdown offers today ("cost per..."). A revenue-per-X formula would need its own
+          // direction on derived_metrics before this holds.
           const d = fmtDelta(r.pct_change, r.unit === "usd" ? "decrease" : "increase");
           return (
             <div className="kpi" key={r.derived_id} style={{ borderStyle: "dashed" }}>

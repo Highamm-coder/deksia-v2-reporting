@@ -164,7 +164,7 @@ export default async function ClientDashboard({ params, searchParams }) {
               }}>
                 <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em",
                   color: biz ? "var(--accent)" : "var(--muted)" }}>
-                  {biz ? "🎯 Business goal" : "Engagement goal"}
+                  {biz ? "Business goal" : "Engagement goal"}
                 </div>
                 <div style={{ fontSize: biz ? 17 : 13.5, fontWeight: 700, marginTop: 3 }}>{o.title}</div>
                 {o.detail && <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{o.detail}</div>}

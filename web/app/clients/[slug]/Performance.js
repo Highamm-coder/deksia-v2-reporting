@@ -83,7 +83,7 @@ export default function Performance({ detail, only, showHighlights = true, showT
 
   const Star = ({ m }) => (
     <button type="button" onClick={() => toggle(m)} title={pinned.has(m) ? "Unpin from highlights" : "Pin to highlights"}
-      style={{ margin: 0, padding: "0 6px", background: "transparent", border: 0, cursor: "pointer",
+      style={{ margin: 0, padding: "4px 8px", lineHeight: 1, background: "transparent", border: 0, cursor: "pointer",
         color: pinned.has(m) ? "var(--accent)" : "#c3cbdd", fontSize: 14, lineHeight: 1 }}>
       {pinned.has(m) ? "★" : "☆"}
     </button>
@@ -98,7 +98,7 @@ export default function Performance({ detail, only, showHighlights = true, showT
         <div className="hl-card">
           <span className="ic" aria-hidden>ⓘ</span>
           <div style={{ flex: 1, minWidth: 0 }}>
-          <h2>Highlighted <span className="muted" style={{ textTransform: "none", letterSpacing: 0 }}>
+          <h2>Highlights <span className="muted" style={{ textTransform: "none", letterSpacing: 0 }}>
             · {fmtMonth(curMonth)} {mtdDays ? `(first ${mtdDays} days) vs the same ${mtdDays} days last month` : "vs prior month"} · pin ★ to add</span></h2>
           {highlights.length ? (
             <div className="kpis">
@@ -160,7 +160,7 @@ export default function Performance({ detail, only, showHighlights = true, showT
                   : ""}
               </p>
             )}
-            <table>
+            <div className="tablewrap"><table>
               <thead><tr>
                 <th style={{ width: 24 }}></th>
                 <th>Metric</th>
@@ -184,7 +184,7 @@ export default function Performance({ detail, only, showHighlights = true, showT
                   );
                 })}
               </tbody>
-            </table>
+            </table></div>
           </div>
         ));
       })}
