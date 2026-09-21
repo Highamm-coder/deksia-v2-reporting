@@ -95,15 +95,18 @@ const line = (f) => {
   // ---- one email, only when it says something ----
   try {
     if (actions.length || human.length) {
+      // A dry run must never claim anything was fixed — it only says what it would have done.
+      const verb = DRY_RUN ? "would fix" : "fixed automatically";
+      const tag = DRY_RUN ? " [dry run — nothing changed]" : "";
       const subject = urgent.length
-        ? `🔴 Weekly health check: ${urgent.length} item(s) need you now` + (actions.length ? `, ${actions.length} fixed automatically` : "")
+        ? `🔴 Weekly health check: ${urgent.length} item(s) need you now` + (actions.length ? `, ${actions.length} ${verb}` : "") + tag
         : human.length
-          ? `🟠 Weekly health check: ${actions.length} fixed automatically, ${human.length} to keep an eye on`
-          : `🟢 Weekly health check: ${actions.length} item(s) fixed automatically`;
+          ? `🟠 Weekly health check: ${actions.length} ${verb}, ${human.length} to keep an eye on${tag}`
+          : `🟢 Weekly health check: ${actions.length} item(s) ${verb}${tag}`;
       const body =
-        `Data doctor, ${today}.\n\n` +
+        `Data doctor, ${today}.${DRY_RUN ? " DRY RUN — nothing was changed; this is what it would have done." : ""}\n\n` +
         (actions.length
-          ? `FIXED AUTOMATICALLY (${actions.length})\nRe-pulled from the platform — nothing was edited or filled in.\n` +
+          ? `${DRY_RUN ? `WOULD FIX (${actions.length})` : `FIXED AUTOMATICALLY (${actions.length})`}\nRe-pulled from the platform — nothing was edited or filled in.\n` +
             actions.map((a) => {
               const who = [a.slug, a.source].filter(Boolean).join(" / ") || a.source || "rollups";
               return `• ${a.action.replace(/_/g, " ")} — ${who}${a.from_date ? ` ${a.from_date}..${a.to_date}` : ""}`;
