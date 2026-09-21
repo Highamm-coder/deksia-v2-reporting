@@ -46,6 +46,8 @@ tab of the Reporting workbook and are documented in `.claude/skills/client-repor
 
 ## Setup on a new machine
 
+**Database setup limitation:** several historical SQL files are markers for changes applied directly to the deployed project. They cannot recreate the complete database from scratch. Recover and validate a complete schema baseline before provisioning a new environment; see [reporting reliability rollout](docs/reliability/ROLLOUT.md). Do not treat running all current migration files as a verified installation path.
+
 1. **Prereqs:** Node 18+, Claude Code, and access to the Deksia Google / Meta / CallRail / Supabase accounts.
 2. **Clone** this repo.
 3. **Local MCP servers** — declared in [`.mcp.json`](.mcp.json) (the project MCP wrapper); Claude Code

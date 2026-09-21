@@ -1,3 +1,4 @@
+import { requireData } from "../../../../lib/readAll.mjs";
 import { getSupabaseServer } from "../../../../lib/supabase/server";
 import { addDerived, setDerivedActive, setMetricDepth, repullClient } from "./actions";
 import { statusSentence, toneColor } from "../../../../lib/statusSentence";
@@ -10,7 +11,7 @@ const TERM_LABEL = ({ source, metric }) => `${source} · ${String(metric).replac
 export default async function SettingsTab({ params, searchParams }) {
   const slug = decodeURIComponent(params.slug);
   const supabase = getSupabaseServer();
-  const [{ data: client }, { data: pipeline }, { data: prov }, { data: sumDefs }, { data: derivedDefs }, { data: isAdmin }, { data: statusRows }] = await Promise.all([
+  const [client, pipeline, prov, sumDefs, derivedDefs, isAdmin, statusRows] = await Promise.all([
     supabase.from("clients").select("*, client_sources(*)").eq("slug", slug).maybeSingle(),
     supabase.from("v_pipeline_health").select("*").eq("slug", slug).order("source"),
     supabase.from("v_client_provenance").select("*").eq("slug", slug).order("source"),
@@ -18,12 +19,12 @@ export default async function SettingsTab({ params, searchParams }) {
     supabase.from("derived_metrics").select("*").order("label"),
     supabase.rpc("is_admin"),
     supabase.from("v_client_source_status").select("*").eq("slug", slug),
-  ]);
+  ].map((query, i) => requireData(query, `Client settings query ${i + 1}`)));
 
   if (!client) return <p>Client not found.</p>;
   // formulas that apply here: global (client_id null) or scoped to this client
   const myDerived = (derivedDefs || []).filter((d) => !d.client_id || d.client_id === client.id);
-  const dmsg = searchParams?.derr === "forbidden" ? "Admins only." : searchParams?.derr ? "Couldn't save — needs a name plus at least one numerator and one denominator metric."
+  const dmsg = searchParams?.derr === "forbidden" ? "Admins only." : searchParams?.derr ? "Couldn't save. Check your inputs and try again; if this persists, contact an administrator."
     : searchParams?.dok ? "Computed metric added — it's live on the dashboard." : null;
   const sources = (client.client_sources || []).sort((a, b) => a.source.localeCompare(b.source) || String(a.external_id).localeCompare(String(b.external_id)));
 
@@ -59,7 +60,7 @@ export default async function SettingsTab({ params, searchParams }) {
   return (
     <>
       <h2>Sources & freshness</h2>
-      <table>
+      <div className="table-scroll" tabIndex={0} role="region" aria-label="Scrollable report table"><table>
         <thead><tr><th>Source</th><th>Account</th><th>Status</th><th style={{ whiteSpace: "normal" }}>What that means</th><th className="num">Rows 30d</th>{isAdmin && <th></th>}</tr></thead>
         <tbody>
           {sources.map((s) => {
@@ -78,10 +79,10 @@ export default async function SettingsTab({ params, searchParams }) {
             );
           })}
         </tbody>
-      </table>
+      </table></div>
 
       <h2>Data provenance — where every number comes from</h2>
-      <table>
+      <div className="table-scroll" tabIndex={0} role="region" aria-label="Scrollable report table"><table>
         <thead><tr><th>Source</th><th>Account</th><th style={{ whiteSpace: "normal" }}>Method</th><th>Coverage</th><th>Last pulled</th><th>Written by</th></tr></thead>
         <tbody>
           {(prov || []).map((p) => (
@@ -95,7 +96,7 @@ export default async function SettingsTab({ params, searchParams }) {
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
 
       {metaSources.length > 0 && (
         <>
@@ -116,7 +117,7 @@ export default async function SettingsTab({ params, searchParams }) {
           </p>
           {depthMsg ? <div style={{ margin: "8px 0", fontSize: 13, color: depthMsg[1] }}>{depthMsg[0]}</div> : null}
           {isAdmin && (<>
-          <table>
+          <div className="table-scroll" tabIndex={0} role="region" aria-label="Scrollable report table"><table>
             <thead><tr><th>Platform</th><th>Ad account</th><th>Depth</th><th></th></tr></thead>
             <tbody>
               {metaSources.map((s) => {
@@ -140,7 +141,7 @@ export default async function SettingsTab({ params, searchParams }) {
                 );
               })}
             </tbody>
-          </table>
+          </table></div>
           {repullMsg ? <div style={{ margin: "8px 0", fontSize: 13, color: repullMsg[1] }}>{repullMsg[0]}</div> : null}
           <form action={repullClient} className="card" style={{ maxWidth: "none", display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", marginTop: 10 }}>
             <input type="hidden" name="slug" value={slug} />
@@ -170,7 +171,7 @@ export default async function SettingsTab({ params, searchParams }) {
       </p>
       {dmsg ? <div style={{ margin: "8px 0", fontSize: 13, color: searchParams?.derr ? "var(--off)" : "var(--on)" }}>{dmsg}</div> : null}
       {myDerived.length > 0 && (
-        <table>
+        <div className="table-scroll" tabIndex={0} role="region" aria-label="Scrollable report table"><table>
           <thead><tr><th>Metric</th><th style={{ whiteSpace: "normal" }}>Formula</th><th>Scope</th><th>Status</th><th></th></tr></thead>
           <tbody>
             {myDerived.map((d) => (
@@ -194,7 +195,7 @@ export default async function SettingsTab({ params, searchParams }) {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       )}
       {isAdmin && <form action={addDerived} className="card" style={{ maxWidth: "none", display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", marginTop: 10 }}>
         <input type="hidden" name="slug" value={slug} />

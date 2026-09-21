@@ -21,24 +21,14 @@ export async function addDerived(formData) {
   const unit = ["usd", "ratio", "pct", "int"].includes(formData.get("unit")) ? formData.get("unit") : "usd";
   const numerator = parseTerms(formData.getAll("num"));
   const denominator = parseTerms(formData.getAll("den"));
-  const scope = formData.get("scope") === "all" ? null : String(formData.get("client_id"));
   if (!label || !numerator.length || !denominator.length) return back(slug, "?derr=1");
-
-  const name = label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 40) || "custom";
   const supabase = getSupabaseServer();
-  const { error } = await supabase.from("derived_metrics")
-    .insert({ client_id: scope, name, label, unit, numerator, denominator });
-  if (!error) {
-    // register under source='derived' so goals can target it (FK) and it appears in
-    // the goal editor's metric picker. agg='avg' = level semantics in the tracker.
-    await supabase.from("metric_definitions").upsert({
-      source: "derived", metric_name: name, unit,
-      direction_default: unit === "usd" ? "decrease" : "increase",
-      agg: "avg",
-      description: `${label} — Deksia-computed formula`,
-      provenance: "Deksia-computed (ratio of platform sums) — not a platform-reported number.",
-    }, { onConflict: "source,metric_name" });
-  }
+  const { error } = await supabase.rpc("create_derived_metric", {
+    p_slug: slug, p_global: formData.get("scope") === "all", p_label: label, p_unit: unit,
+    p_numerator: numerator, p_denominator: denominator,
+  });
+  if (error) console.error("Computed metric save failed", error);
+
   return back(slug, error ? "?derr=1" : "?dok=1");
 }
 
@@ -49,8 +39,8 @@ export async function setDerivedActive(formData) {
   const id = String(formData.get("id"));
   const active = String(formData.get("active")) === "true";
   const supabase = getSupabaseServer();
-  await supabase.from("derived_metrics").update({ active, updated_at: new Date().toISOString() }).eq("id", id);
-  return back(slug);
+  const { data, error } = await supabase.from("derived_metrics").update({ active, updated_at: new Date().toISOString() }).eq("id", id).select("id").maybeSingle();
+  return back(slug, error || !data ? "?derr=save" : "");
 }
 
 // ---- Meta metric depth -------------------------------------------------------
@@ -68,10 +58,11 @@ export async function setMetricDepth(formData) {
   if (!isAdmin) return back(slug, "?depth=forbidden", "metric-depth");
 
   // merge, don't overwrite — params also carries confirmed/brand/note flags
-  const { data: row } = await supabase.from("client_sources").select("params").eq("id", id).maybeSingle();
+  const { data: row, error: readError } = await supabase.from("client_sources").select("params").eq("id", id).maybeSingle();
+  if (readError || !row) return back(slug, "?depth=failed", "metric-depth");
   const params = { ...(row?.params || {}), metric_depth: depth };
-  const { error } = await supabase.from("client_sources").update({ params }).eq("id", id);
-  return back(slug, error ? "?depth=failed" : `?depth=${depth}`, "metric-depth");
+  const { data: saved, error } = await supabase.from("client_sources").update({ params }).eq("id", id).select("id").maybeSingle();
+  return back(slug, error || !saved ? "?depth=failed" : `?depth=${depth}`, "metric-depth");
 }
 
 // Re-pull one client over a date range — as a backfill JOB, never a raw run. The job is
