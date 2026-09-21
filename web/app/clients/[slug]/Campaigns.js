@@ -52,7 +52,7 @@ export default function Campaigns({ campaigns, drill }) {
                 {multi && <span style={{ color: "var(--txt)" }}> — {acct.label || acctId}{acct.brand ? ` (${acct.brand})` : ""}</span>}
                 <span className="muted" style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}> · {list.length} campaigns</span>
               </p>
-              <table>
+              <div className="table-scroll" tabIndex={0} role="region" aria-label="Scrollable report table"><table>
                 <thead><tr>
                   <th style={{ width: 20 }}></th>
                   <th>Campaign</th>
@@ -119,7 +119,7 @@ export default function Campaigns({ campaigns, drill }) {
                     {hasRates && <td colSpan={rateCols}></td>}
                   </tr>
                 </tbody>
-              </table>
+              </table></div>
             </div>
           );
         });

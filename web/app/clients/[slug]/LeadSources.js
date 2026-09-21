@@ -30,7 +30,7 @@ export default function LeadSources({ rows }) {
     <>
       <h2>Leads by channel <span className="muted" style={{ textTransform: "none", letterSpacing: 0 }}>
         · {fmtMonth(list[0].month_start)} · CallRail lead source · click a channel for its sources</span></h2>
-      <table>
+      <div className="table-scroll" tabIndex={0} role="region" aria-label="Scrollable report table"><table>
         <thead><tr>
           <th style={{ width: 20 }}></th><th>Channel</th>
           <th className="num">MQLs</th><th className="num">Share</th>
@@ -70,7 +70,7 @@ export default function LeadSources({ rows }) {
             <td colSpan={4}></td>
           </tr>
         </tbody>
-      </table>
+      </table></div>
       {byCh.unclassified && (
         <p className="muted" style={{ fontSize: 11, marginTop: 6 }}>
           “Unclassified” = lead sources with no channel rule yet. Their MQLs are counted, just not
