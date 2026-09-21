@@ -77,8 +77,15 @@ export default async function ClientDashboard({ params, searchParams }) {
   // ---- build the report rows (selected vs previous month) in the shape the tables use ----
   const key = (r) => `${r.source}|${r.account_ext_id}|${r.metric_name}`;
   const prevBy = {};
+  // Sources whose prior-period baseline does not cover the whole window, because the mapping
+  // started part-way through it. Dividing by a truncated baseline invents a percentage
+  // (Goodside read +399% off 11 days vs 21), so drop it and say why — see migration 0072.
+  const partialBaseline = new Set();
   if (prevPartial) {
-    prevPartial.forEach((r) => { prevBy[key(r)] = { value: r.value, day_count: r.day_count, month_start: `${P}-01` }; });
+    prevPartial.forEach((r) => {
+      if (r.complete === false) { partialBaseline.add(r.source); return; }
+      prevBy[key(r)] = { value: r.value, day_count: r.day_count, month_start: `${P}-01` };
+    });
   } else {
     (monthly || []).forEach((r) => { if (ym(r.month_start) === P) prevBy[key(r)] = r; });
   }
@@ -179,6 +186,12 @@ export default async function ClientDashboard({ params, searchParams }) {
         {isMtd && (
           <span className="pill mtd" title={`Month in progress. MoM compares these ${mtdDays} days against the first ${mtdDays} days of the prior month — like for like.`}>
             MTD · {mtdDays} day{mtdDays === 1 ? "" : "s"} · vs same {mtdDays} days last month
+          </span>
+        )}
+        {isMtd && partialBaseline.size > 0 && (
+          <span className="muted" style={{ fontSize: 12 }}>
+            No comparison shown for {[...partialBaseline].map((x) => PLATFORM_LABEL[x] || x).join(", ")} —
+            {partialBaseline.size === 1 ? " that connection" : " those connections"} only started part-way through last month.
           </span>
         )}
       </div>

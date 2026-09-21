@@ -6,8 +6,11 @@ export function statusSentence(r) {
   const d = (v) => (v ? new Date(v).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : null);
   if (r.reachable === false)
     return { text: `Provider refused access on ${d(r.probed_at) || "the last check"} — Deksia is on it.`, tone: "off" };
-  if (r.sync_status === "idle" && !r.last_metric_date)
-    return { text: "Connected — nothing to report yet (no spend or traffic).", tone: "muted" };
+  // Nothing has EVER been recorded here. That is not the same as "no activity": a mapping
+  // pointed at the wrong account looks identical from this side (Hatton Power's Meta mapping
+  // points at an ad account Meta names "Deksia"). Say only what we know, and invite a check.
+  if (!r.last_metric_date)
+    return { text: "Connected, but nothing has ever been recorded for this account — worth checking it is the right one.", tone: "risk" };
   if (r.sync_status === "idle")
     return { text: `Nothing to report since ${r.last_metric_date} — connection healthy.`, tone: "muted" };
   if (r.sync_status === "fresh")

@@ -19,6 +19,13 @@ const LABEL = {
 };
 const SRC_LABEL = { google_ads: "Google Ads", meta: "Meta", ga4: "GA4", search_console: "Search Console", youtube: "YouTube", callrail: "CallRail", pages: "Facebook Pages", manual: "Tracked manually", email: "Email", seo: "SEO", other: "Other" };
 const SRC_ORDER = ["google_ads", "meta", "ga4", "search_console", "youtube", "callrail", "pages", "manual", "email", "seo", "other"];
+// Sources whose published figures keep moving after the day closes. Google credits a conversion
+// to the date of the CLICK and keeps adding to that date for weeks, so the daily run re-reads the
+// trailing 30 days and restates them (GADS_RESTATE_DAYS in orchestrator/run.mjs). Saying so is the
+// difference between "this number moved" reading as expected and reading as broken.
+const RESTATES = {
+  google_ads: "Conversions are credited to the date of the click and keep arriving for weeks, so the last 30 days are re-read every day and can still move.",
+};
 const LS_KEY = "deksia_pinned_metrics";
 const label = (m) => LABEL[m] || m.replace(/_/g, " ");
 const prio = (m) => { const i = PRIORITY.indexOf(m); return i === -1 ? 99 : i; };
@@ -145,6 +152,14 @@ export default function Performance({ detail, only, showHighlights = true, showT
                 ) : null;
               })()}
             </p>
+            {RESTATES[src] && (
+              <p className="muted" style={{ fontSize: 12, margin: "0 0 6px" }}>
+                Still settling. {RESTATES[src]}
+                {prov?.[`${src}|${acctId}`]?.last_ingested
+                  ? ` As of ${new Date(prov[`${src}|${acctId}`].last_ingested).toLocaleDateString()}.`
+                  : ""}
+              </p>
+            )}
             <table>
               <thead><tr>
                 <th style={{ width: 24 }}></th>
