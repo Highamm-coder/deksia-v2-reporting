@@ -26,7 +26,7 @@ export default function Events({ events }) {
             {accounts.length > 1 && (
               <p className="srcgroup">{acct.label || acctId}{acct.brand ? ` (${acct.brand})` : ""}</p>
             )}
-            <table>
+            <div className="tablewrap"><table>
               <thead><tr><th>Event (conversion action)</th><th>Campaign</th><th className="num">Conversions</th></tr></thead>
               <tbody>
                 {list.map((r, i) => (
@@ -41,7 +41,7 @@ export default function Events({ events }) {
                   <td className="num">{fmtVal(total, "int")}</td>
                 </tr>
               </tbody>
-            </table>
+            </table></div>
           </div>
         );
       })}

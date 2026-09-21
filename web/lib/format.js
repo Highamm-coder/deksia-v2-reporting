@@ -11,6 +11,7 @@ export function fmtVal(value, unit) {
     case "usd": return "$" + N(v, 2);
     case "pct": return N(v, v < 10 ? 2 : 1) + "%";
     case "ratio": return N(v, 2) + "×";
+    case "pos": return N(v, 1);          // average search position — one decimal, no unit
     case "sec": {
       const s = Math.round(v);
       return s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`;

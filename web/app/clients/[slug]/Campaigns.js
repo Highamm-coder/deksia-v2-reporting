@@ -52,7 +52,7 @@ export default function Campaigns({ campaigns, drill }) {
                 {multi && <span style={{ color: "var(--txt)" }}> — {acct.label || acctId}{acct.brand ? ` (${acct.brand})` : ""}</span>}
                 <span className="muted" style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}> · {list.length} campaigns</span>
               </p>
-              <table>
+              <div className="tablewrap"><table>
                 <thead><tr>
                   <th style={{ width: 20 }}></th>
                   <th>Campaign</th>
@@ -71,7 +71,11 @@ export default function Campaigns({ campaigns, drill }) {
                     const kids = childrenOf(src, acctId, r.campaign);
                     const isOpen = !!open[key];
                     return [
-                      <tr key={key} onClick={() => kids.length && setOpen((o) => ({ ...o, [key]: !o[key] }))}
+                      <tr key={key} className={kids.length ? "expandable" : undefined}
+                        role={kids.length ? "button" : undefined} tabIndex={kids.length ? 0 : undefined}
+                        aria-expanded={kids.length ? isOpen : undefined}
+                        onClick={() => kids.length && setOpen((o) => ({ ...o, [key]: !o[key] }))}
+                        onKeyDown={(e) => { if (kids.length && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); setOpen((o) => ({ ...o, [key]: !o[key] })); } }}
                         style={kids.length ? { cursor: "pointer" } : undefined}
                         title={kids.length ? `${kids.length} ${kids[0]?.is_ad_level ? "ads" : src === "meta" ? "ads" : "ad groups"}` : "no finer grain available"}>
                         <td className="muted" style={{ fontSize: 11 }}>{kids.length ? (isOpen ? "▾" : "▸") : ""}</td>
@@ -119,7 +123,7 @@ export default function Campaigns({ campaigns, drill }) {
                     {hasRates && <td colSpan={rateCols}></td>}
                   </tr>
                 </tbody>
-              </table>
+              </table></div>
             </div>
           );
         });

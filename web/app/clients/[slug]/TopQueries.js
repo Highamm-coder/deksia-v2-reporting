@@ -34,7 +34,7 @@ export default function TopQueries({ rows, fullDepth, month }) {
         return (
           <div className="card" key={acctId} style={{ maxWidth: "none", marginBottom: 12 }}>
             {multi && <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6 }}>{acct.label}</div>}
-            <table>
+            <div className="tablewrap"><table>
               <thead>
                 <tr>
                   <th>Query</th>
@@ -57,7 +57,7 @@ export default function TopQueries({ rows, fullDepth, month }) {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
             <p className="muted" style={{ fontSize: 12, margin: "6px 0 0" }}>
               Stored as the top 50 queries per day; a query's month total counts only the days it made that list.
             </p>
