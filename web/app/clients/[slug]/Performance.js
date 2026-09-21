@@ -1,4 +1,5 @@
 "use client";
+import { metricKey } from "../../../lib/reporting.mjs";
 import { useEffect, useState } from "react";
 import { fmtVal, fmtDelta, fmtMonth } from "../../../lib/format";
 import InfoDot from "../../_components/InfoDot";
@@ -98,15 +99,18 @@ export default function Performance({ detail, only, showHighlights = true, showT
               {highlights.map((r, i) => {
                 const d = fmtDelta(r.pct_change, r.direction);
                 const multi = Object.keys(byAcct[r.source] || {}).length > 1;
-                const trend = series?.[r.metric_name];
+                const trend = series?.[metricKey(r)];
+                const freshness = prov?.[`${r.source}|${r.account_ext_id}`];
                 return (
                   <div className={`kpi tint c${(i % 4) + 1}`} key={`${r.source}|${r.account_ext_id}|${r.metric_name}`}>
                     <div className="v">{fmtVal(r.cur_value, r.unit)}</div>
                     <div className="k">
                       {label(r.metric_name)} <span className="muted">· {SRC_LABEL[r.source] || r.source}{multi && r.brand ? ` (${r.brand})` : ""}</span>
                     </div>
-                    <div className={`d delta ${d.cls}`}>{d.text} <span className="muted" style={{ fontWeight: 400 }}>MoM</span></div>
-                    {trend && !multi && <Sparkline points={trend} />}
+                    <div className={`d delta ${d.cls}`}>{r.comparison_note || <>{d.text} <span className="muted" style={{ fontWeight: 400 }}>MoM</span></>}</div>
+                    <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>{r.cur_days} covered days{r.prev_days != null ? ` · prior ${r.prev_days}` : ""}</div>
+                    {freshness?.last_ingested && <div className="muted" style={{ fontSize: 11 }}>Updated {new Date(freshness.last_ingested).toLocaleDateString()}</div>}
+                    {trend && <Sparkline points={trend} />}
                   </div>
                 );
               })}
@@ -145,7 +149,7 @@ export default function Performance({ detail, only, showHighlights = true, showT
                 ) : null;
               })()}
             </p>
-            <table>
+            <div className="table-scroll" tabIndex={0} role="region" aria-label="Scrollable report table"><table>
               <thead><tr>
                 <th style={{ width: 24 }}></th>
                 <th>Metric</th>
@@ -163,13 +167,13 @@ export default function Performance({ detail, only, showHighlights = true, showT
                       <td title={r.description || ""}>{label(r.metric_name)}</td>
                       <td className="num">{fmtVal(r.cur_value, r.unit)}</td>
                       <td className="num muted">{r.prev_value == null ? "—" : fmtVal(r.prev_value, r.unit)}</td>
-                      <td className={`num delta ${d.cls}`}>{d.text}</td>
+                      <td className={`num delta ${d.cls}`} title={r.comparison_note || undefined}>{r.comparison_note ? "Incomplete / unavailable" : d.text}</td>
                       <td className="num muted">{r.cur_days}{r.prev_days ? ` / ${r.prev_days}` : ""}</td>
                     </tr>
                   );
                 })}
               </tbody>
-            </table>
+            </table></div>
           </div>
         ));
       })}

@@ -35,11 +35,11 @@ export default function DataGrid({
   const toggleCol = (k) => setHidden((h) => { const n = new Set(h); n.has(k) ? n.delete(k) : n.add(k); ls.set(`grid:${id}:hidden`, [...n]); return n; });
   useEffect(() => { const close = () => setOpenMenu(null); document.addEventListener("click", close); return () => document.removeEventListener("click", close); }, []);
 
-  const filterCols = columns.filter((c) => c.filter === "select");
+  const filterCols = useMemo(() => columns.filter((c) => c.filter === "select"), [columns]);
   const options = useMemo(() => Object.fromEntries(filterCols.map((c) => {
     const vals = new Set(rows.map((r) => (c.filterValue ? c.filterValue(r) : c.sort ? c.sort(r) : r[c.key])).filter((v) => v != null && v !== ""));
     return [c.key, [...vals].sort((a, b) => String(a).localeCompare(String(b)))];
-  })), [rows, columns]);
+  })), [rows, filterCols]);
 
   const shown = useMemo(() => {
     let out = rows;
@@ -66,12 +66,15 @@ export default function DataGrid({
   const selectedRows = rows.filter((r) => selected.has(rowId(r)));
   const toggleAll = () => setSelected((s) => { const n = new Set(s); allOnPage ? slice.forEach((r) => n.delete(rowId(r))) : slice.forEach((r) => n.add(rowId(r))); return n; });
   const toggleOne = (r) => setSelected((s) => { const n = new Set(s); const k = rowId(r); n.has(k) ? n.delete(k) : n.add(k); return n; });
-  const th = (c) => (
-    <th key={c.key} style={{ textAlign: c.align || "left", width: c.width, cursor: c.sort || !c.render ? "pointer" : "default", userSelect: "none", whiteSpace: "nowrap" }}
-        onClick={() => (c.sort || !c.render) && setSort((s) => ({ key: c.key, dir: s.key === c.key && s.dir === "asc" ? "desc" : "asc" }))}>
-      {c.label}{sort.key === c.key ? <span className="muted"> {sort.dir === "asc" ? "↑" : "↓"}</span> : null}
-    </th>
-  );
+  const th = (c) => {
+    const sortable = c.sort || !c.render;
+    return <th key={c.key} style={{ textAlign: c.align || "left", width: c.width }}
+      aria-sort={sort.key === c.key ? (sort.dir === "asc" ? "ascending" : "descending") : undefined}>
+      {sortable ? <button type="button" className="sort-button" onClick={() => setSort(s => ({ key: c.key, dir: s.key === c.key && s.dir === "asc" ? "desc" : "asc" }))}>
+        {c.label}{sort.key === c.key ? (sort.dir === "asc" ? " ↑" : " ↓") : ""}
+      </button> : c.label}
+    </th>;
+  };
 
   return (
     <div className="grid">
@@ -83,9 +86,9 @@ export default function DataGrid({
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           {pages > 1 && (
             <span className="muted" style={{ fontSize: 12, display: "inline-flex", alignItems: "center", gap: 6 }}>
-              <button type="button" className="grid-btn" disabled={cur <= 1} onClick={() => setPage(cur - 1)}>‹</button>
+              <button type="button" className="grid-btn" aria-label="Previous page" disabled={cur <= 1} onClick={() => setPage(cur - 1)}>‹</button>
               {cur} of {pages}
-              <button type="button" className="grid-btn" disabled={cur >= pages} onClick={() => setPage(cur + 1)}>›</button>
+              <button type="button" className="grid-btn" aria-label="Next page" disabled={cur >= pages} onClick={() => setPage(cur + 1)}>›</button>
             </span>
           )}
           {primary}
@@ -93,9 +96,9 @@ export default function DataGrid({
       </div>
 
       <div className="grid-toolbar">
-        <input value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} placeholder="Search…" className="grid-search" />
+        <input value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} aria-label={`Search ${title || "records"}`} placeholder="Search…" className="grid-search" />
         {filterCols.map((c) => (
-          <select key={c.key} value={filters[c.key] ?? ""} onChange={(e) => { setFilters((f) => ({ ...f, [c.key]: e.target.value })); setPage(1); }} className="grid-select">
+          <select key={c.key} aria-label={`Filter by ${c.label}`} value={filters[c.key] ?? ""} onChange={(e) => { setFilters((f) => ({ ...f, [c.key]: e.target.value })); setPage(1); }} className="grid-select">
             <option value="">{c.label}: all</option>
             {(options[c.key] || []).map((v) => <option key={String(v)} value={String(v)}>{c.filterLabel ? c.filterLabel(v) : String(v)}</option>)}
           </select>
@@ -145,7 +148,7 @@ export default function DataGrid({
               const k = rowId(r); const menu = rowMenu ? rowMenu(r) : null;
               return (
                 <tr key={k} id={`row-${k}`} className={selected.has(k) ? "sel" : undefined} style={r._style}>
-                  {bulk.length > 0 && <td><input type="checkbox" checked={selected.has(k)} onChange={() => toggleOne(r)} style={{ width: "auto", margin: 0 }} /></td>}
+                  {bulk.length > 0 && <td><input type="checkbox" aria-label={`Select record ${k}`} checked={selected.has(k)} onChange={() => toggleOne(r)} style={{ width: "auto", margin: 0 }} /></td>}
                   {visCols.map((c) => <td key={c.key} style={{ textAlign: c.align || "left", whiteSpace: c.wrap ? "normal" : undefined, fontSize: c.small ? 12 : undefined }} className={c.className}>{c.render ? c.render(r) : r[c.key]}</td>)}
                   {rowMenu && (
                     <td style={{ position: "relative", textAlign: "right" }} onClick={(e) => e.stopPropagation()}>

@@ -146,3 +146,11 @@ main section > h2:first-child { margin-top:2px; }
   background:var(--panel2); border:1px solid var(--line); border-radius:10px; }
 .grid tr.sel td { background:rgba(17,24,39,.035); }
 .grid table.dense th, .grid table.dense td { padding:7px 10px; }
+
+/* Report tables retain native semantics while small screens can scroll them. */
+.table-scroll { max-width:100%; overflow-x:auto; margin:8px 0; }
+:focus-visible { outline:3px solid #3667d6; outline-offset:3px; }
+.sort-button { background:transparent; color:inherit; font:inherit; text-transform:inherit; letter-spacing:inherit; margin:0; padding:0; }
+.mobile-signout { display:none; }
+@media (max-width:820px) { .mobile-signout { display:block; margin:0; } .mobile-signout button { margin:0; } }
+@media (prefers-reduced-motion:reduce) { .skel { animation:none; } }

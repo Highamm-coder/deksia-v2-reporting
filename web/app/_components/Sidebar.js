@@ -97,6 +97,7 @@ export default function Sidebar({ clients = [], lastSync = null, email = null, c
           <span className="ic" aria-hidden>{ic}</span>{label}
         </a>
       ))}
+      <form action={logout} className="mobile-signout"><button type="submit">Sign out</button></form>
       <div className="grow" />
       {credWarning && (
         <a href="/data" style={{ textDecoration: "none", display: "block", background: "rgba(169,118,0,.10)",

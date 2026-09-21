@@ -1,4 +1,5 @@
 import { getSupabaseServer } from "../lib/supabase/server";
+import { readAll } from "../lib/readAll.mjs";
 import AppShell from "./_components/AppShell";
 
 export const dynamic = "force-dynamic";
@@ -7,8 +8,9 @@ const STATUS_ORDER = ["off_track", "at_risk", "missed", "pending", "on_track", "
 
 export default async function Scoreboard() {
   const supabase = getSupabaseServer();
-  const { data: goals } = await supabase
-    .from("v_goal_scoreboard").select("*").order("slug").order("metric_name");
+  const goals = await readAll(() => supabase.from("v_goal_scoreboard").select("*", { count: "exact" }).order("goal_id"), "Goal scoreboard");
+  goals.sort((a, b) => STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status)
+    || (a.days_remaining ?? Infinity) - (b.days_remaining ?? Infinity) || a.slug.localeCompare(b.slug));
 
   const gc = {};
   (goals || []).forEach((g) => { gc[g.status] = (gc[g.status] || 0) + 1; });
@@ -16,13 +18,14 @@ export default async function Scoreboard() {
 
   return (
     <AppShell>
+      <p className="muted">Needs attention first · then nearest deadline. Open a client to review coverage and next steps.</p>
       <h2>Goal Scoreboard — {goals?.length ?? 0} active goals</h2>
       {statuses.length > 0 && (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "0 0 14px" }}>
           {statuses.map((s) => <span key={s} className={`pill ${s}`}>{gc[s]} {s.replace("_", " ")}</span>)}
         </div>
       )}
-      <table>
+      <div className="table-scroll" tabIndex={0} role="region" aria-label="Scrollable report table"><table>
         <thead><tr><th>Client</th><th>Source</th><th>Metric</th><th className="num">Current</th><th className="num">Target</th><th className="num">%</th><th>Status</th><th className="num">Days left</th></tr></thead>
         <tbody>
           {(goals || []).map((g) => (
@@ -38,7 +41,7 @@ export default async function Scoreboard() {
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
       {!goals?.length && <p className="muted">No active goals yet.</p>}
     </AppShell>
   );

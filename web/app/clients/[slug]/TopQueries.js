@@ -59,7 +59,7 @@ export default function TopQueries({ rows, fullDepth, month }) {
               </tbody>
             </table>
             <p className="muted" style={{ fontSize: 12, margin: "6px 0 0" }}>
-              Stored as the top 50 queries per day; a query's month total counts only the days it made that list.
+              Stored as the top 50 queries per day; a query&apos;s month total counts only the days it made that list.
             </p>
           </div>
         );
