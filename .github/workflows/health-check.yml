@@ -1,0 +1,43 @@
+name: deksia-health-check
+
+# Weekly data health check — the data doctor on a schedule.
+#
+# Monday 12:00 UTC = 8:00 AM ET, an hour after the daily pull, so it judges a fresh day.
+# It scans per CLIENT MAPPING (the daily sentinel only works per source), applies the safe
+# fixes — re-pull, first pull, refresh rollups — and emails one summary. Anything needing a
+# human (credentials, access, a wrong id) is reported, never touched. Queued re-pulls drain
+# through deksia-backfill, so nothing is dispatched from here.
+#
+# Run it by hand any time from the Actions tab. Set dry_run to look without changing anything.
+on:
+  schedule:
+    - cron: "0 12 * * 1"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Report only — queue nothing (true/false)"
+        required: false
+        default: "false"
+      max_jobs:
+        description: "Most fixes to queue in one run (default 8)"
+        required: false
+
+concurrency:
+  group: deksia-health-check
+  cancel-in-progress: false
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Data doctor
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          DRY_RUN: ${{ github.event.inputs.dry_run == 'true' && '1' || '0' }}
+          MAX_JOBS: ${{ github.event.inputs.max_jobs }}
+        run: node orchestrator/health-check.mjs

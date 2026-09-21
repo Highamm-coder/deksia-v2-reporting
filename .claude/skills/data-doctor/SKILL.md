@@ -33,6 +33,13 @@ run that failed. Every run and every action is written to `public.doctor_runs`.
 5. **Provenance.** Everything the doctor queues is stamped `created_by = 'doctor/<actor>'`. Say
    who you are in `p_actor` (e.g. `routine 2026-09-17`).
 
+## It already runs weekly
+
+`.github/workflows/health-check.yml` runs `orchestrator/health-check.mjs` every **Monday 12:00 UTC**
+(8:00 AM ET, an hour after the daily pull), which calls `doctor_fix` and emails one summary. Run it
+by hand from the Actions tab any time, with `dry_run: true` to look without changing anything.
+Use this skill when you want to investigate interactively, or to interpret what that run reported.
+
 ## Procedure
 
 Supabase project: `ykxauddrsnuwkvimkdhw`. Repo: `Highamm-coder/deksia-v2-reporting`.
