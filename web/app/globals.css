@@ -44,6 +44,12 @@ main section tbody tr:hover td { background:rgba(255,255,255,.65); }
 .chan-quiet { background:var(--panel2); color:var(--muted); }
 .off_track,.missed { background:rgba(217,48,37,.10); color:var(--off); }
 .achieved { background:rgba(54,103,214,.12); color:var(--achieved); }
+/* a control that has triggered a server round trip spins beside itself */
+@keyframes spinnerTurn { to { transform: rotate(360deg); } }
+.spinner { display:inline-block; border:2px solid var(--line); border-top-color:var(--accent);
+  border-radius:999px; animation:spinnerTurn .7s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration:2.4s; } }
+
 /* source badge on the trend chart headline — reads as a label, not a status */
 .pill.src { background:var(--accent-soft); color:var(--accent); text-transform:uppercase; letter-spacing:.04em; }
 /* confirmation when a metric is sent to the chart from a table row */
