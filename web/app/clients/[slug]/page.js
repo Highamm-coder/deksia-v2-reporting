@@ -1,4 +1,5 @@
 import { getSupabaseServer } from "../../../lib/supabase/server";
+import { fetchAll } from "../../../lib/supabase/fetchAll";
 import Performance from "./Performance";
 import Campaigns from "./Campaigns";
 import Derived from "./Derived";
@@ -36,16 +37,20 @@ const pct = (cur, prev) => (prev != null && Number(prev) !== 0 ? (Number(cur) - 
 export default async function ClientDashboard({ params, searchParams }) {
   const slug = decodeURIComponent(params.slug);
   const supabase = getSupabaseServer();
-  const [{ data: monthly }, { data: campaignsAll }, { data: goals }, { data: provRows }, { data: derivedAll }, { data: health }, { data: eventsAll }, { data: objectivesAll }, { data: drillAll }, { data: leadSrcAll }, { data: statusRows }, { data: queriesAll }, { data: scMappings }] = await Promise.all([ 
-    supabase.from("v_client_monthly").select("*").eq("slug", slug),
-    supabase.from("v_client_campaigns_all").select("*").eq("slug", slug),
+  const [monthly, campaignsAll, { data: goals }, { data: provRows }, { data: derivedAll }, { data: health }, { data: eventsAll }, { data: objectivesAll }, drillAll, { data: leadSrcAll }, { data: statusRows }, { data: queriesAll }, { data: scMappings }] = await Promise.all([
+    // paged: Contingent alone has 2306 monthly rows, well past one PostgREST page — see fetchAll
+    fetchAll(() => supabase.from("v_client_monthly").select("*").eq("slug", slug)
+      .order("month_start").order("source").order("metric_name").order("account_ext_id")),
+    fetchAll(() => supabase.from("v_client_campaigns_all").select("*").eq("slug", slug)
+      .order("month_start").order("source").order("account_ext_id").order("campaign")),
     supabase.from("v_goal_scoreboard").select("*").eq("slug", slug).order("metric_name"),
     supabase.from("v_client_provenance").select("*").eq("slug", slug),
     supabase.from("v_client_derived_all").select("*").eq("slug", slug).order("label"),
     supabase.from("v_pipeline_health").select("*").eq("slug", slug).order("source"),
     supabase.from("v_client_events").select("*").eq("slug", slug),
     supabase.from("client_objectives").select("*, clients!inner(slug)").eq("clients.slug", slug).eq("active", true).order("kind").order("position").order("created_at"),
-    supabase.from("v_client_campaign_drill").select("*").eq("slug", slug),
+    fetchAll(() => supabase.from("v_client_campaign_drill").select("*").eq("slug", slug)
+      .order("month_start").order("source").order("account_ext_id").order("campaign").order("child")),
     supabase.from("v_client_lead_sources").select("*").eq("slug", slug),
     supabase.from("v_client_source_status").select("*").eq("slug", slug),
     supabase.from("v_client_search_queries").select("*").eq("slug", slug),
