@@ -1,4 +1,5 @@
 import { getSupabaseServer } from "../../lib/supabase/server";
+import { fetchAll } from "../../lib/supabase/fetchAll";
 import AppShell from "../_components/AppShell";
 import { runConnectionTest } from "../data/actions";
 import { mapDiscovered, setMappingActive, updateMapping, probeMapping, attachById,
@@ -26,12 +27,13 @@ const pill = (status) => <span className={`pill ${status === "ok" ? "fresh" : st
 
 export default async function Connections({ searchParams }) {
   const supabase = getSupabaseServer();
-  const [{ data: status }, { data: sources }, { data: mappings }, { data: probes }, { data: disc }, { data: clients }, { data: isAdmin }, { data: statusRows }] = await Promise.all([
+  const [{ data: status }, { data: sources }, mappings, probes, disc, { data: clients }, { data: isAdmin }, { data: statusRows }] = await Promise.all([
     supabase.from("connector_status").select("*"),
     supabase.from("v_sources").select("*").neq("source", "manual"),
-    supabase.from("client_sources").select("id, client_id, source, external_id, active, params, clients(slug, name, status)"),
-    supabase.from("connection_probes").select("*"),
-    supabase.from("connector_discovery").select("*"),
+    // all three grow with every account every credential can see — page them
+    fetchAll(() => supabase.from("client_sources").select("id, client_id, source, external_id, active, params, clients(slug, name, status)").order("id")),
+    fetchAll(() => supabase.from("connection_probes").select("*").order("source").order("external_id")),
+    fetchAll(() => supabase.from("connector_discovery").select("*").order("source").order("external_id")),
     supabase.from("clients").select("id, slug, name").neq("status", "archived").order("name"),
     supabase.rpc("is_admin"),
     supabase.from("v_client_source_status").select("slug, source, sync_status"),
