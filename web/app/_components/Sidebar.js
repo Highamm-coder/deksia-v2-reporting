@@ -11,7 +11,7 @@ const NAV = [
 const RECENTS_KEY = "deksia_recent_clients";
 const clientHref = (slug) => `/clients/${encodeURIComponent(slug)}`;
 
-export default function Sidebar({ clients = [], lastSync = null, email = null, credWarning = null, integrity = null, isAdmin = false }) {
+export default function Sidebar({ clients = [], lastSync = null, email = null, credWarning = null, integrity = null, isAdmin = false, shellFailed = false }) {
   // display identity from the email local part: "matthew" → "Matthew"
   const nm = email ? email.split("@")[0].replace(/[._-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : null;
   const initials = nm ? nm.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase() : "?";
@@ -107,7 +107,15 @@ export default function Sidebar({ clients = [], lastSync = null, email = null, c
       )}
       <a href="/data" className="card-cta" style={{ textDecoration: "none", color: "var(--txt)" }}>
         <div style={{ fontWeight: 700, fontSize: 13 }}>Last sync</div>
-        <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{syncTxt} · view data health →</div>
+        {shellFailed ? (
+          // the sync time, credential warning, integrity status and client list all failed to load —
+          // say so rather than showing their absence as if it were the real state
+          <div style={{ fontSize: 12, marginTop: 4, fontWeight: 600, color: "var(--risk)" }}>
+            ⚠ Status didn’t load — sync, credentials and integrity unknown. Reload to try again.
+          </div>
+        ) : (
+          <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{syncTxt} · view data health →</div>
+        )}
         {integrity && (
           <div style={{ fontSize: 12, marginTop: 6, fontWeight: 600,
             color: integrity.status === "ok" ? "var(--on)" : integrity.status === "attention" ? "var(--risk)" : "var(--off)" }}>
