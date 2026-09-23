@@ -1,5 +1,4 @@
 import { getSupabaseServer } from "../../../lib/supabase/server";
-import { fetchAll } from "../../../lib/supabase/fetchAll";
 import Performance from "./Performance";
 import Campaigns from "./Campaigns";
 import Derived from "./Derived";
@@ -37,32 +36,41 @@ const pct = (cur, prev) => (prev != null && Number(prev) !== 0 ? (Number(cur) - 
 export default async function ClientDashboard({ params, searchParams }) {
   const slug = decodeURIComponent(params.slug);
   const supabase = getSupabaseServer();
-  const [monthly, campaignsAll, { data: goals }, { data: provRows }, { data: derivedAll }, { data: health }, { data: eventsAll }, { data: objectivesAll }, drillAll, { data: leadSrcAll }, { data: statusRows }, { data: queriesAll }, { data: scMappings }] = await Promise.all([
-    // paged: Contingent alone has 2306 monthly rows, well past one PostgREST page — see fetchAll
-    fetchAll(() => supabase.from("v_client_monthly").select("*").eq("slug", slug)
-      .order("month_start").order("source").order("metric_name").order("account_ext_id")),
-    fetchAll(() => supabase.from("v_client_campaigns_all").select("*").eq("slug", slug)
-      .order("month_start").order("source").order("account_ext_id").order("campaign")),
-    supabase.from("v_goal_scoreboard").select("*").eq("slug", slug).order("metric_name"),
-    supabase.from("v_client_provenance").select("*").eq("slug", slug),
-    supabase.from("v_client_derived_all").select("*").eq("slug", slug).order("label"),
-    supabase.from("v_pipeline_health").select("*").eq("slug", slug).order("source"),
-    supabase.from("v_client_events").select("*").eq("slug", slug),
-    supabase.from("client_objectives").select("*, clients!inner(slug)").eq("clients.slug", slug).eq("active", true).order("kind").order("position").order("created_at"),
-    fetchAll(() => supabase.from("v_client_campaign_drill").select("*").eq("slug", slug)
-      .order("month_start").order("source").order("account_ext_id").order("campaign").order("child")),
-    supabase.from("v_client_lead_sources").select("*").eq("slug", slug),
-    supabase.from("v_client_source_status").select("*").eq("slug", slug),
-    supabase.from("v_client_search_queries").select("*").eq("slug", slug),
-    supabase.from("client_sources").select("source, params, clients!inner(slug)").eq("clients.slug", slug).eq("source", "search_console").eq("active", true),
+  const req = typeof searchParams?.month === "string" && /^\d{4}-\d{2}$/.test(searchParams.month) ? searchParams.month : null;
+
+  // ONE request for everything on the page, with the in-progress month's baseline fetched
+  // alongside it rather than after it. PostgREST here has a pool of 10 connections and this page
+  // used to send ~23 requests at once, so most of them queued — see migration 0077. Each key of
+  // client_page_data holds exactly the rows its old separate query returned, in the same order,
+  // and one JSON value has no 1000-row cap to page around. Both are read-only, so they go as GET:
+  // supabase-js retries a GET on a transient 503/520, never a POST. p_month is omitted rather than
+  // sent as null, which a GET would turn into the string "null".
+  const [page, early] = await Promise.all([
+    supabase.rpc("client_page_data", { p_slug: slug }, { get: true }),
+    supabase.rpc("client_mtd_baseline", req ? { p_slug: slug, p_month: req } : { p_slug: slug }, { get: true }),
   ]);
+  if (page.error || !page.data) {
+    // a failed load must never render as "no data for this client"
+    return (
+      <div className="card" style={{ maxWidth: "none" }}>
+        <p style={{ margin: 0, fontWeight: 700 }}>Couldn’t load this client’s data.</p>
+        <p className="muted" style={{ margin: "6px 0 0", fontSize: 13 }}>
+          {page.error?.message || "The database returned nothing."} Reload to try again.
+        </p>
+      </div>
+    );
+  }
+  const {
+    monthly, campaigns: campaignsAll, goals, provenance: provRows, derived: derivedAll, health,
+    events: eventsAll, objectives: objectivesAll, drill: drillAll, lead_sources: leadSrcAll,
+    source_status: statusRows, search_queries: queriesAll, sc_mappings: scMappings,
+  } = page.data;
   const objectives = objectivesAll || [];
   const goalById = {};
   (goals || []).forEach((g) => { goalById[g.goal_id] = g; });
 
   // ---- month selection: ?month=YYYY-MM, default = latest month with data ----
   const months = [...new Set((monthly || []).map((r) => ym(r.month_start)))].sort().reverse();
-  const req = typeof searchParams?.month === "string" && /^\d{4}-\d{2}$/.test(searchParams.month) ? searchParams.month : null;
   const M = req && months.includes(req) ? req : months[0];
   const P = M ? prevYm(M) : null;
 
@@ -74,12 +82,30 @@ export default async function ClientDashboard({ params, searchParams }) {
     ? Math.max(0, ...(monthly || []).filter((r) => ym(r.month_start) === M).map((r) => Number(r.day_count || 0)))
     : null;
   let prevPartial = null;
+  let baselineFailed = false;
   if (isMtd && elapsed > 0 && P) {
-    const { data } = await supabase.rpc("client_prev_partial", {
-      p_slug: slug, p_prev_month: P, p_days: elapsed,
-    });
-    prevPartial = data || [];
+    // Take the baseline fetched in parallel only when it was built for the same month and the
+    // same number of days this page arrived at; otherwise ask for exactly those. Its month logic
+    // is a copy of the lines above, so a disagreement costs one round trip, never a wrong number.
+    // Until 0076 a failed baseline was read as an empty one and the page silently showed no
+    // comparison at all; now it says so. A call that ERRORED is not retried here — a timeout
+    // would only make the reader wait for the same timeout twice.
+    const b = early.data;
+    if (early.error) {
+      baselineFailed = true;
+    } else if (b && b.month === P && b.days === elapsed) {
+      prevPartial = b.rows || [];
+    } else {
+      const { data, error } = await supabase.rpc("client_prev_partial", {
+        p_slug: slug, p_prev_month: P, p_days: elapsed,
+      }, { get: true });
+      if (error) baselineFailed = true;
+      else prevPartial = data || [];
+    }
   }
+  // The baseline window never runs past the end of the prior month (0078): on Mar 30-31 it is
+  // all of February, not "the same 29 days", and the labels below say so.
+  const prevWindowDays = isMtd && elapsed > 0 && P ? Math.min(elapsed, daysInMonth(P)) : null;
 
   // ---- build the report rows (selected vs previous month) in the shape the tables use ----
   const key = (r) => `${r.source}|${r.account_ext_id}|${r.metric_name}`;
@@ -93,7 +119,9 @@ export default async function ClientDashboard({ params, searchParams }) {
       if (r.complete === false) { partialBaseline.add(r.source); return; }
       prevBy[key(r)] = { value: r.value, day_count: r.day_count, month_start: `${P}-01` };
     });
-  } else {
+  } else if (!baselineFailed) {
+    // a failed MTD baseline must not fall back to the FULL prior month — that is the
+    // partial-vs-full comparison this whole block exists to prevent
     (monthly || []).forEach((r) => { if (ym(r.month_start) === P) prevBy[key(r)] = r; });
   }
   // conversion_action is shown named in the Events table, not as a meaningless sum row
@@ -185,7 +213,10 @@ export default async function ClientDashboard({ params, searchParams }) {
   const derived = (derivedAll || [])
     .filter((r) => ym(r.month_start) === M)
     .map((r) => {
-      const p = (derivedAll || []).find((x) => x.derived_id === r.derived_id && ym(x.month_start) === P);
+      // derived rows exist per whole month only, so an in-progress month has no like-for-like
+      // baseline — comparing it with the FULL prior month is the partial-vs-full error the
+      // platform metrics above are guarded against. Show no delta rather than a wrong one.
+      const p = isMtd ? null : (derivedAll || []).find((x) => x.derived_id === r.derived_id && ym(x.month_start) === P);
       return {
         ...r,
         cur_month: r.month_start, cur_num: r.num, cur_den: r.den, cur_value: r.value,
@@ -246,8 +277,17 @@ export default async function ClientDashboard({ params, searchParams }) {
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", margin: "2px 0 4px" }}>
         <MonthPicker months={months} />
         {isMtd && (
-          <span className="pill mtd" title={`Month in progress. MoM compares these ${mtdDays} days against the first ${mtdDays} days of the prior month — like for like.`}>
-            MTD · {mtdDays} day{mtdDays === 1 ? "" : "s"} · vs same {mtdDays} days last month
+          <span className="pill mtd" title={prevWindowDays != null && prevWindowDays < mtdDays
+            ? `Month in progress. Last month had only ${prevWindowDays} days, so MoM compares these ${mtdDays} days against all of it.`
+            : `Month in progress. MoM compares these ${mtdDays} days against the first ${mtdDays} days of the prior month — like for like.`}>
+            MTD · {mtdDays} day{mtdDays === 1 ? "" : "s"} · {prevWindowDays != null && prevWindowDays < mtdDays
+              ? `vs all ${prevWindowDays} days of last month`
+              : `vs same ${mtdDays} days last month`}
+          </span>
+        )}
+        {isMtd && baselineFailed && (
+          <span style={{ fontSize: 12, color: "var(--risk)" }}>
+            No comparison shown — last month’s baseline didn’t load. Reload to try again.
           </span>
         )}
         {isMtd && partialBaseline.size > 0 && (
@@ -259,7 +299,7 @@ export default async function ClientDashboard({ params, searchParams }) {
       </div>
 
       {/* pinned highlights across all platforms */}
-      <Performance detail={detail} showTables={false} series={series} mtdDays={mtdDays} trendKeys={trendKeys} slug={slug} />
+      <Performance detail={detail} showTables={false} series={series} mtdDays={mtdDays} mtdPrevDays={prevWindowDays} trendKeys={trendKeys} slug={slug} />
 
       {/* Deksia-computed formulas (e.g. Blended CPL) — clearly separated from platform numbers */}
       <Derived derived={derived} />
@@ -280,7 +320,7 @@ export default async function ClientDashboard({ params, searchParams }) {
             <h2 style={{ color: "var(--accent)" }}>{PLATFORM_LABEL[p] || p}</h2>
             {has ? (
               <>
-                <Performance detail={detail} only={[p]} showHighlights={false} prov={prov} mtdDays={mtdDays} trendKeys={trendKeys} slug={slug} />
+                <Performance detail={detail} only={[p]} showHighlights={false} prov={prov} mtdDays={mtdDays} mtdPrevDays={prevWindowDays} trendKeys={trendKeys} slug={slug} />
                 {PAID.has(p) && <Campaigns campaigns={campaigns.filter((c) => c.source === p)} drill={drill.filter((d) => d.source === p)} />}
                 {p === "google_ads" && <Events events={events} />}
                 {p === "callrail" && <LeadSources rows={leadSources} />}

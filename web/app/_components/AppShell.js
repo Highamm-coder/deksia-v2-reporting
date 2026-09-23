@@ -7,17 +7,20 @@ import BugButton from "./BugButton";
 // latest ingest time for the live freshness card.
 export default async function AppShell({ children }) {
   const supabase = getSupabaseServer();
-  const [{ data: clients }, { data: last }, { data: auth }, { data: creds }, { data: checks }, { data: isAdmin }] = await Promise.all([
-    supabase.from("clients").select("slug, name, status").order("slug"),
-    supabase.from("v_pipeline_health").select("last_ingested_at").order("last_ingested_at", { ascending: false }).limit(1),
-    supabase.auth.getUser(),
-    supabase.from("connector_status").select("provider, status, expires_at"),
-    supabase.from("integrity_checks").select("status, checked_at").order("checked_at", { ascending: false }).limit(1),
-    supabase.rpc("is_admin"),
-  ]);
-  const integrity = checks?.[0] || null;
-  const lastSync = last?.[0]?.last_ingested_at || null;
-  const email = auth?.user?.email || null;
+  // One request for the whole sidebar, instead of five queries plus an auth-server call on every
+  // page — they competed for PostgREST's 10 connections with the page's own data (migration 0077).
+  // The e-mail comes from the JWT PostgREST has verified; middleware has already gated the request.
+  // GET, not the default POST: supabase-js only retries GETs, and the old separate reads were GETs.
+  const { data: shell, error: shellError } = await supabase.rpc("app_shell_data", {}, { get: true });
+  // One call now feeds the whole sidebar, so a failure must say so — an absent credential warning
+  // would otherwise read as "credentials fine".
+  const shellFailed = !!shellError || !shell;
+  const clients = shell?.clients || null;
+  const creds = shell?.creds || null;
+  const isAdmin = shell?.is_admin || false;
+  const integrity = shell?.integrity || null;
+  const lastSync = shell?.last_sync || null;
+  const email = shell?.email || null;
   // sidebar warning when any credential is expired or inside 14 days
   let credWarning = null;
   (creds || []).forEach((c) => {
@@ -29,7 +32,7 @@ export default async function AppShell({ children }) {
   return (
     <div className="page">
       <div className="app">
-        <Sidebar clients={clients || []} lastSync={lastSync} email={email} credWarning={isAdmin ? credWarning : null} integrity={integrity} isAdmin={!!isAdmin} />
+        <Sidebar clients={clients || []} lastSync={lastSync} email={email} credWarning={isAdmin ? credWarning : null} integrity={integrity} isAdmin={!!isAdmin} shellFailed={shellFailed} />
         <div className="content">
           <main>{children}</main>
         </div>
