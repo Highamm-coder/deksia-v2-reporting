@@ -27,7 +27,7 @@ const pill = (status) => <span className={`pill ${status === "ok" ? "fresh" : st
 
 export default async function Connections({ searchParams }) {
   const supabase = getSupabaseServer();
-  const [{ data: status }, { data: sources }, mappings, probes, disc, { data: clients }, { data: isAdmin }, { data: statusRows }] = await Promise.all([
+  const [{ data: status }, { data: sources }, mappings, probes, disc, { data: clients }, { data: isAdmin }, { data: statusRows }, { data: identityIssues }] = await Promise.all([
     supabase.from("connector_status").select("*"),
     supabase.from("v_sources").select("*").neq("source", "manual"),
     // all three grow with every account every credential can see — page them
@@ -37,6 +37,7 @@ export default async function Connections({ searchParams }) {
     supabase.from("clients").select("id, slug, name").neq("status", "archived").order("name"),
     supabase.rpc("is_admin"),
     supabase.from("v_client_source_status").select("slug, source, sync_status"),
+    supabase.from("v_mapping_identity_issues").select("*"),
   ]);
   const statusBy = Object.fromEntries((status || []).map((s) => [s.provider, s]));
   const mappedKeys = new Set((mappings || []).map((m) => `${m.source}|${norm(m.external_id)}`));
@@ -93,7 +94,16 @@ export default async function Connections({ searchParams }) {
         <summary className="muted" style={{ cursor: "pointer", fontSize: 13 }}>Attach an account by ID (one discovery can&apos;t see)</summary>
         {isAdmin ? (
           <form action={attachById} className="card" style={{ maxWidth: "none", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end", marginTop: 8 }}>
-            {searchParams?.warn && (
+            {searchParams?.warn === "unnamed" ? (
+              <div style={{ flexBasis: "100%", fontSize: 13, color: "var(--risk)", background: "rgba(169,118,0,.10)", padding: "8px 10px", borderRadius: 8 }}>
+                {Number(searchParams.mapped_others) > 0 && <>Mapped {searchParams.mapped_others} account(s). </>}
+                The {warnProvider || ""} credential can see {PLATFORM_LABEL[searchParams.source] || searchParams.source} <strong>{searchParams.external_id}</strong> but not its name, so nothing can check it belongs to this client.
+                Open it on the platform and type what it&apos;s called there. (Goodside showed Online Orchards&apos; ads for two months because a nameless account was labelled by hand.)
+                {Number(searchParams.nameless_left) > 0 && <> {searchParams.nameless_left} more selected account(s) had no name and weren&apos;t mapped — attach them the same way.</>}
+                <label style={{ display: "block", margin: "8px 0 0", color: "var(--txt)" }}>Name on the platform
+                  <input name="name_verified" required autoFocus placeholder="exactly as the platform shows it" style={{ maxWidth: 360 }} /></label>
+              </div>
+            ) : searchParams?.warn && (
               <div style={{ flexBasis: "100%", fontSize: 13, color: "var(--risk)", background: "rgba(169,118,0,.10)", padding: "8px 10px", borderRadius: 8 }}>
                 <strong>{searchParams.external_id}</strong> isn&apos;t among the {PLATFORM_LABEL[searchParams.source] || searchParams.source} accounts the {warnProvider || ""} credential can see.
                 Either the ID is wrong (property IDs are 9 digits, Ads customer IDs 10) or that user hasn&apos;t been granted access yet. Attach anyway if you&apos;re sure — it&apos;s probed immediately.
@@ -114,10 +124,23 @@ export default async function Connections({ searchParams }) {
             <label style={{ margin: 0, flex: 1, minWidth: 200 }}>Account / property ID<input name="external_id" required defaultValue={searchParams?.warn ? searchParams.external_id : ""} placeholder="GA4 property 9 digits · Ads customer 10 digits · page / ad account digits · COM… for CallRail" /></label>
             <label style={{ margin: 0, minWidth: 150 }}>Label<input name="label" defaultValue={searchParams?.warn ? searchParams.label : ""} placeholder="how it shows on the client page" /></label>
             <label style={{ margin: 0, width: 160 }}>CallRail account ID<input name="account_id" defaultValue={searchParams?.warn ? searchParams.account_id : ""} placeholder="only for CallRail" /></label>
-            <button type="submit" style={{ margin: 0 }}>{searchParams?.warn ? "Attach anyway" : "Attach & probe"}</button>
+            <button type="submit" style={{ margin: 0 }}>{searchParams?.warn === "unnamed" ? "Attach & probe" : searchParams?.warn ? "Attach anyway" : "Attach & probe"}</button>
           </form>
         ) : <p className="muted" style={{ fontSize: 12 }}>Admins only.</p>}
       </details>
+
+      {(identityIssues || []).length > 0 && (
+        <div className="card" style={{ maxWidth: "none", margin: "0 0 14px", padding: "10px 14px", fontSize: 13, borderLeft: "3px solid var(--risk)" }}>
+          <strong>Mappings nothing has checked ({identityIssues.length})</strong>
+          <span className="muted"> — the platform shows no name for these accounts, or a name that shares no word with the label. Confirm each one is the right client&apos;s, then record the name (params.name_verified) or the override (params.label_override).</span>
+          <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+            {identityIssues.map((i) => (
+              <li key={i.id}><a href={`?mapping=${i.id}#row-${i.id}`} style={{ color: "inherit" }}>{i.slug} · {PLATFORM_LABEL[i.source] || i.source} {i.external_id}</a>
+                <span className="muted"> — {i.issue === "unnamed" ? `no name on the platform${i.label ? `; labelled "${i.label}"` : ""}` : `labelled "${i.label}", platform says "${i.discovered_name}"`}</span></li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <MappedGrid rows={mappings || []} probes={probes || []} statusRows={statusRows || []} isAdmin={!!isAdmin} actions={actions}
                   highlight={searchParams?.mapping} initialEdit={searchParams?.edit === "1" ? searchParams?.mapping : null} />
