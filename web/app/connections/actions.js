@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 const back = (q = "") => { revalidatePath("/connections"); redirect(`/connections${q}`); };
+// the mapping guard (migration 0080) explains itself — show its whole message, not a stub
+const errQ = (error) => `?err=${encodeURIComponent(error.message.slice(0, 300))}`;
 
 // Map a discovered account to a client. Discovery is what the credential can see; the
 // mapping is what we pull. Same shape as onboarding's addSource, reached from the
@@ -22,7 +24,7 @@ export async function mapDiscovered(formData) {
   if (label) params.label = label;
   if (account_id) params.account_id = account_id;
   const { error } = await supabase.from("client_sources").insert({ client_id, source, external_id, active: true, params });
-  if (error) back(`?err=${encodeURIComponent(error.message.slice(0, 120))}`);
+  if (error) back(errQ(error));
   const { data: client } = await supabase.from("clients").select("slug").eq("id", client_id).maybeSingle();
   const probeErr = await dispatchProbe(client?.slug || "", source, external_id);
   back(`?mapped=${encodeURIComponent(external_id)}&client=${encodeURIComponent(client?.slug || "")}&source=${encodeURIComponent(source)}${probeErr ? `&probe_err=${encodeURIComponent(probeErr)}` : "&probing=1"}`);
@@ -57,11 +59,16 @@ export async function updateMapping(formData) {
     params.previous_ids = [...(params.previous_ids || []), { id: row.external_id, changed_at: new Date().toISOString() }];
   }
   const { error } = await supabase.from("client_sources").update({ external_id, params, updated_at: new Date().toISOString() }).eq("id", id);
-  back(error ? `?err=${encodeURIComponent(error.message.slice(0, 120))}` : "?updated=1");
+  back(error ? errQ(error) : "?updated=1");
 }
 
 const normId = (source, v) => (source === "google_ads" || source === "ga4" || source === "meta" || source === "pages")
   ? String(v || "").replace(/\D/g, "") : String(v || "").trim();
+
+// Discovery sees the account but has no real name for it (blank, or just its own ID). Goodside
+// (2026-09-04): an unnamed Ads account was labelled "J&S Siding" and was Online Orchards. Same
+// rule as mapping_discovered_name() in 0080; Search Console's ID is its URL, so it's never unnamed.
+const isUnnamed = (d) => d.source !== "search_console" && (!String(d.name || "").trim() || normId(d.source, d.name) === normId(d.source, d.external_id));
 
 async function dispatchProbe(slug, source, external_id) {
   const token = (process.env.GITHUB_DISPATCH_TOKEN || "").trim();
@@ -93,6 +100,7 @@ export async function attachById(formData) {
   const external_id = normId(source, raw);
   const label = String(formData.get("label") || "").trim();
   const account_id = String(formData.get("account_id") || "").trim();
+  const name_verified = String(formData.get("name_verified") || "").trim();
   const confirmed = String(formData.get("confirm") || "") === "1";
   if (!client_id || !source || !external_id) back("?err=missing");
   const { data: src } = await supabase.from("v_sources").select("source").eq("source", source).maybeSingle();
@@ -106,12 +114,19 @@ export async function attachById(formData) {
     const q = new URLSearchParams({ warn: "1", client_id, source, external_id, label, account_id }).toString();
     back(`?${q}#attach`);
   }
+  // seen but nameless: nothing can check the label, so a person names it from the platform itself
+  const unnamed = seen && isUnnamed(seen);
+  if (unnamed && !name_verified) {
+    const q = new URLSearchParams({ warn: "unnamed", client_id, source, external_id, label, account_id }).toString();
+    back(`?${q}#attach`);
+  }
   const params = { confirmed: true, mapped_from: "connections/attach-by-id" };
-  if (label || seen?.name) params.label = label || seen.name;
+  if (label || (seen && !unnamed && seen.name) || name_verified) params.label = label || (unnamed ? name_verified : seen.name);
+  if (unnamed) params.name_verified = name_verified;
   if (source === "callrail" && account_id) params.account_id = account_id;
   if (!seen) params.not_in_discovery_at_attach = new Date().toISOString();
   const { error } = await supabase.from("client_sources").insert({ client_id, source, external_id, active: true, params });
-  if (error) back(`?err=${encodeURIComponent(error.message.slice(0, 120))}`);
+  if (error) back(errQ(error));
   const probeErr = await dispatchProbe(client.slug, source, external_id);
   back(`?mapped=${encodeURIComponent(external_id)}&client=${encodeURIComponent(client.slug)}&source=${encodeURIComponent(source)}${probeErr ? `&probe_err=${encodeURIComponent(probeErr)}` : "&probing=1"}`);
 }
@@ -160,13 +175,25 @@ export async function mapDiscoveredBulk(formData) {
   const { data: client } = await supabase.from("clients").select("slug").eq("id", client_id).maybeSingle();
   if (!client) back("?err=unknown%20client");
   const { data: disc } = await supabase.from("connector_discovery").select("source, external_id, name, extra");
-  const rows = keys.map((k) => (disc || []).find((d) => `${d.source}|${d.external_id}` === k)).filter(Boolean).map((d) => ({
+  const picked = keys.map((k) => (disc || []).find((d) => `${d.source}|${d.external_id}` === k)).filter(Boolean);
+  // a nameless account can't be bulk-mapped: send the first one to attach-by-id to be named
+  const nameless = picked.filter(isUnnamed);
+  const rows = picked.filter((d) => !isUnnamed(d)).map((d) => ({
     client_id, source: d.source, external_id: d.external_id, active: true,
     params: { confirmed: true, mapped_from: "connections/bulk", ...(d.name ? { label: d.name } : {}), ...(d.extra?.account_id ? { account_id: d.extra.account_id } : {}) },
   }));
-  if (!rows.length) back("?err=nothing%20to%20map");
-  const { error } = await supabase.from("client_sources").insert(rows);
-  if (error) back(`?err=${encodeURIComponent(error.message.slice(0, 120))}`);
+  if (!rows.length && !nameless.length) back("?err=nothing%20to%20map");
+  if (rows.length) {
+    const { error } = await supabase.from("client_sources").insert(rows);
+    if (error) back(errQ(error));
+  }
+  if (nameless.length) {
+    if (rows.length) await dispatchProbe(client.slug, "", "");
+    const d = nameless[0];
+    const q = new URLSearchParams({ warn: "unnamed", client_id, source: d.source, external_id: d.external_id,
+      account_id: d.extra?.account_id || "", mapped_others: String(rows.length), nameless_left: String(nameless.length - 1) }).toString();
+    back(`?${q}#attach`);
+  }
   const probeErr = await dispatchProbe(client.slug, "", "");
   back(`?mapped=${rows.length}%20account(s)&client=${encodeURIComponent(client.slug)}${probeErr ? `&probe_err=${encodeURIComponent(probeErr)}` : "&probing=1"}`);
 }
