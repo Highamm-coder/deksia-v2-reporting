@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { fmtVal, fmtMonth, metricLabel, sourceLabel, SOURCE_ORDER } from "../../../lib/format";
 
 // Track a metric over time. Pick one from the rail on the left and it is drawn across every
@@ -61,6 +61,24 @@ export default function MetricTrend({ series, all, slug }) {
   const [hover, setHover] = useState(null);
   const [q, setQ] = useState("");
 
+  // Draw at the width the chart actually has. A fixed viewBox scaled to fit a wider column
+  // letterboxes: the drawing stays 760 wide in the middle with empty bands either side. Measuring
+  // keeps one viewBox unit = one CSS pixel, so text and dots stay their size and the time axis
+  // spreads out instead. A callback ref, because the chart mounts only once there is data to draw.
+  const [chartW, setChartW] = useState(760);
+  const observer = useRef(null);
+  const measure = useCallback((el) => {
+    observer.current?.disconnect();
+    observer.current = null;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(([entry]) => {
+      const w = Math.round(entry.contentRect.width);
+      if (w > 0) setChartW(Math.max(320, w));
+    });
+    ro.observe(el);
+    observer.current = ro;
+  }, []);
+
   // Read the saved choice, and keep in step with the chart control in the metric tables.
   useEffect(() => {
     const sync = () => {
@@ -116,7 +134,7 @@ export default function MetricTrend({ series, all, slug }) {
   const vals = pts.map((p) => p.v).filter((v) => v != null && isFinite(v));
   if (vals.length < 2) return null;
 
-  const W = 760, H = 260, padL = 58, padR = 14, padT = 14, padB = 36;
+  const W = chartW, H = 260, padL = 58, padR = 14, padT = 14, padB = 36;
   const dataMin = Math.min(...vals), dataMax = Math.max(...vals);
   // Counts start at zero so the eye reads magnitude; rates and positions keep a tight window,
   // because "average position moved 11.1 → 9.8" is invisible on a 0-based axis.
@@ -223,7 +241,7 @@ export default function MetricTrend({ series, all, slug }) {
         </div>
 
         {/* chart */}
-        <div style={{ flex: "1 1 440px", minWidth: 320 }}>
+        <div ref={measure} style={{ flex: "1 1 440px", minWidth: 320 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span className="pill src">{sourceLabel(cur.source)}</span>
             <span style={{ fontSize: 15, fontWeight: 700 }}>{metricLabel(cur.metric)}</span>

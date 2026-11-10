@@ -5,7 +5,9 @@ import BugButton from "./BugButton";
 // Authenticated app frame: light page → dark rounded panel → left sidebar + content.
 // Fetches the client roster once (28 rows) to power the sidebar quick-search, and the
 // latest ingest time for the live freshness card.
-export default async function AppShell({ children }) {
+// `wide` lifts the content column's 1180px cap — for pages built of full-width tables and charts
+// (the client dashboard), where the cap left a narrow strip down the middle of a large screen.
+export default async function AppShell({ children, wide = false }) {
   const supabase = getSupabaseServer();
   // One request for the whole sidebar, instead of five queries plus an auth-server call on every
   // page — they competed for PostgREST's 10 connections with the page's own data (migration 0077).
@@ -34,7 +36,7 @@ export default async function AppShell({ children }) {
       <div className="app">
         <Sidebar clients={clients || []} lastSync={lastSync} email={email} credWarning={isAdmin ? credWarning : null} integrity={integrity} isAdmin={!!isAdmin} shellFailed={shellFailed} />
         <div className="content">
-          <main>{children}</main>
+          <main className={wide ? "wide" : undefined}>{children}</main>
         </div>
         <BugButton />
       </div>

@@ -17,7 +17,7 @@ export default async function ClientLayout({ children, params }) {
   }
 
   return (
-    <AppShell>
+    <AppShell wide>
         <p style={{ margin: "0 0 6px" }}><a href="/clients" style={{ fontSize: 13, fontWeight: 600 }}>← Clients</a></p>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginBottom: 10 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
