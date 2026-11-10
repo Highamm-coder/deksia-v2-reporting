@@ -238,18 +238,28 @@ async function gadsQuery(cid, gaql, { selfLogin = false } = {}) {
 }
 
 // ---- CallRail: calls + forms per day, split by source (qualifier) + loose total ----
+// "Qualified" is CallRail's lead_status='good_lead', which a person sets by hand, usually days
+// after the call or form. A day captured once, the morning after, almost never has it yet:
+// measured 2026-11-10 over Jun–Oct, every CallRail client stored 5–10x fewer qualified leads per
+// day on days pulled only the next morning than on days a backfill re-pulled later (Green Shield
+// 0.62 vs 10.65/day, Veritas 0.11 vs 0.80; Veritas October read 2 against ~20). So, like Google
+// Ads, the daily run re-asks for a trailing window and upserts it. Explicit windows and backfill
+// chunks are pulled as given.
+const CALLRAIL_RESTATE_DAYS = Number(process.env.CALLRAIL_RESTATE_DAYS ?? 30);
+
 async function pullCallRail(src) {
   if (!CALLRAIL_API_KEY) return [];
   const account = src.params?.account_id, company = src.external_id;
   if (!account) { console.warn(`CallRail ${src.slug}: no account_id`); return []; }
   const hdr = { Authorization: `Token token=${CALLRAIL_API_KEY}` };
   const base = `https://api.callrail.com/v3/a/${account}`;
+  const cStart = (!EXPLICIT_WINDOW && !BACKFILL_MODE) ? etDate(-1 - CALLRAIL_RESTATE_DAYS) : START;
   // returns `${date}|${source}` -> { n: total, q: qualified (CallRail lead_status='good_lead') }
   const fetchAll = async (endpoint, dateField) => {
     const byKey = {};
     const HARD_CAP = 200; // sanity cap (~50k records/day/company); warn if hit
     for (let page = 1; ; page++) {
-      const q = `company_id=${company}&start_date=${START}&end_date=${END}&per_page=250&page=${page}&fields=${dateField},source,lead_status`;
+      const q = `company_id=${company}&start_date=${cStart}&end_date=${END}&per_page=250&page=${page}&fields=${dateField},source,lead_status`;
       const r0 = await fetchT(`${base}/${endpoint}.json?${q}`, { headers: hdr });
       const d = await r0.json().catch(() => ({}));
       if (!r0.ok || d.error) throw new Error(`callrail ${endpoint} ${company}: ${r0.status} ${JSON.stringify(d.error || d).slice(0, 150)}`);
