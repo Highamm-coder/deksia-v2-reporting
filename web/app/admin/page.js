@@ -34,7 +34,8 @@ export default async function AdminPage({ searchParams }) {
     <AppShell>
       <h1 style={{ fontSize: 24, margin: "0 0 4px" }}>Admin</h1>
       <p className="muted" style={{ margin: "0 0 10px", fontSize: 13 }}>
-        People and clients. Accounts are attached on <a href="/connections">Connections</a>; data health on <a href="/data">Data health</a>.
+        People and clients. Accounts are attached on <a href="/connections">Connections</a>; data health on <a href="/data">Data health</a>.{" "}
+        Prototype: <a href="/admin/live">live vs stored</a>.
       </p>
 
       <section id="new-client">
